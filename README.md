@@ -15,6 +15,10 @@ npm start
 
 For an existing checkout, run `npm start` from the `puppy` directory. Quit an already-running Pawpal from its tray or puppy menu before restarting to load code changes. Opening `src/renderer/index.html` directly in a browser only displays the dashboard; desktop toys require Electron.
 
+Normal startup shows **only the desktop puppy**. The dashboard is created only when you double-click the puppy or choose **Open …'s home** from the puppy/system-tray menu. Starting another instance also leaves the dashboard closed. To deliberately open it at startup, run `npm start -- --show-dashboard` (`--hidden` still takes precedence for login startup).
+
+The default puppy is **30% of the original width and height** (a 90 × 80 logical-pixel window). Right-click the puppy and choose **Puppy size**, or open **Wardrobe → A perfect fit** for a **20%–150%** slider. Your choice is saved across restarts; **Reset to 30%** restores the default. Old saves using the original default Medium migrate to 30%; deliberately selected Small/Large keep their previous 80%/120% sizes. Tiny puppies hide the text bubble and caption so text never covers the dog; the dashboard still shows interaction messages.
+
 ## Play
 
 Choose **Playtime** in the dashboard, or **Play together** in the puppy or system-tray menu:

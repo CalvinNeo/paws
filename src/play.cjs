@@ -31,7 +31,7 @@ function toyHitTest(kind, point, size = TOY_SIZE) {
 
 class PlaySession {
     constructor(mode, petBounds, workArea) {
-        if (!Object.hasOwn(PLAY_MODES, mode)) throw new Error('Choose one of the available puppy games.');
+        if (!Object.hasOwn(PLAY_MODES, mode)) throw new Error('Choose one of the available pet games.');
         this.mode = mode;
         this.workArea = { ...workArea };
         this.petSize = { width: petBounds.width, height: petBounds.height };

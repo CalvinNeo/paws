@@ -14,7 +14,7 @@ for (const directory of ['src', 'scripts', 'tests']) {
     }
 }
 const manifest = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
-for (const filename of [manifest.main, 'src/preload.cjs', 'src/renderer/index.html', 'src/renderer/pet.html', 'src/renderer/toy.html', 'assets/icon.png', 'assets/trayTemplate.png']) {
+for (const filename of [manifest.main, 'src/preload.cjs', 'src/renderer/index.html', 'src/renderer/pet.html', 'src/renderer/toy.html', 'src/renderer/pet-avatar.js', 'src/renderer/puppy.js', 'src/renderer/cat.js', 'assets/icon.png', 'assets/trayTemplate.png']) {
     if (!fs.existsSync(path.join(root, filename))) throw new Error(`Missing app asset: ${filename}`);
 }
 console.log(`Syntax checked ${count} JavaScript files; application entry points and icons are present.`);

@@ -1,6 +1,7 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const { PlaySession, TOY_SIZE, toyHitTest } = require('../src/play.cjs');
+const { homeBounds, petSize } = require('../src/geometry.cjs');
 
 const AREA = { x: 0, y: 25, width: 1440, height: 815 };
 const PET = { x: 990, y: 550, width: 300, height: 266 };
@@ -172,4 +173,18 @@ test('a delayed or backwards frame does not teleport the puppy', () => {
     assert.deepEqual(game.pet, before);
     game.step(1000);
     assert.ok(Math.hypot(game.pet.x - before.x, game.pet.y - before.y) <= 21.01);
+});
+
+test('all games complete with a 30-percent puppy and larger custom sizes', () => {
+    for (const size of [20, 30, 75, 150]) {
+        for (const mode of ['fetch', 'ball', 'bubbles']) {
+            const game = new PlaySession(mode, homeBounds(size, AREA), AREA);
+            throwToy(game, { x: 500, y: 380 });
+            finishRound(game);
+            const bounds = game.getPetBounds();
+            assert.equal(bounds.width, petSize(size).width);
+            assert.equal(bounds.height, petSize(size).height);
+            assert.equal(game.completed, 1);
+        }
+    }
 });

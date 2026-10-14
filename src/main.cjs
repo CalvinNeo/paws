@@ -2,7 +2,7 @@ const path = require('node:path');
 const { pathToFileURL } = require('node:url');
 const { app, BrowserWindow, ipcMain, Menu, Tray, nativeImage, screen, powerMonitor, dialog } = require('electron');
 const { advanceState, performAction, updateSettings, renamePet, getMood, getFriendship, ensureCanPlay, rewardPlay } = require('./model.cjs');
-const { petSize, clampBounds, homeBounds, walkStep } = require('./geometry.cjs');
+const { DEFAULT_PET_SIZE, PET_SIZE_PRESETS, petSize, clampBounds, homeBounds, walkStep } = require('./geometry.cjs');
 const { loadState, saveState } = require('./store.cjs');
 const { DesktopPlay } = require('./desktop-play.cjs');
 const { PLAY_MODES } = require('./play.cjs');
@@ -71,7 +71,7 @@ function saveNow() {
         }
     } catch (error) {
         console.error('Pawpal save failed:', error.message);
-        runtime.warning = 'Could not save your puppy. Check available disk space and folder permissions.';
+        runtime.warning = 'Could not save your pet. Check available disk space and folder permissions.';
         broadcast();
     }
 }
@@ -162,11 +162,21 @@ function commonPreferences() {
 }
 
 function showDashboard() {
-    if (!dashboard || dashboard.isDestroyed()) createDashboard();
+    if (!dashboard || dashboard.isDestroyed()) {
+        createDashboard();
+        dashboard.once('ready-to-show', showDashboard);
+        return;
+    }
     if (process.platform === 'darwin') app.dock?.show();
     if (dashboard.isMinimized()) dashboard.restore();
     dashboard.show();
     dashboard.focus();
+}
+
+function showPetOnLaunch() {
+    if (!windowReady || !petWindow || petWindow.isDestroyed()) return;
+    if (!runtime.visible) setPetVisible(true);
+    else petWindow.showInactive();
 }
 
 function hideDashboard() {
@@ -233,7 +243,7 @@ function createPetWindow() {
     petWindow = new BrowserWindow({
         ...bounds,
         show: false,
-        title: 'Pawpal puppy',
+        title: 'Pawpal companion',
         transparent: true,
         frame: false,
         backgroundColor: '#00000000',
@@ -306,7 +316,8 @@ function bringPetHome() {
 
 function changePreferences(patch) {
     const updated = updateSettings(state, patch);
-    if (Object.hasOwn(patch, 'size')) desktopPlay?.stop(false);
+    const changingSpecies = updated.settings.species !== state.settings.species;
+    if (updated.settings.size !== state.settings.size || changingSpecies) desktopPlay?.stop(false);
     if (Object.hasOwn(patch, 'launchOnLogin') && patch.launchOnLogin !== state.settings.launchOnLogin) {
         if (!app.isPackaged || !['darwin', 'win32'].includes(process.platform)) {
             throw new Error('Launch at login is available after installing Pawpal.');
@@ -317,7 +328,16 @@ function changePreferences(patch) {
             throw new Error('Your system did not apply this change. Check system login-item settings.');
         }
     }
-    state = updated;
+    if (changingSpecies) {
+        endDrag(false);
+        hovering = false;
+        runtime.behavior = restBehavior();
+        runtime.carrying = null;
+        behaviorUntil = 0;
+        nextWanderAt = Date.now() + 12000;
+        setMousePassthrough(true);
+    }
+    state = { ...state, settings: updated.settings };
     applyPetWindowSettings();
     if (desktopPlay?.active) petWindow.setAlwaysOnTop(true, 'floating');
     updateTray();
@@ -340,9 +360,20 @@ function contextMenuTemplate() {
         { label: 'Put toys away', visible: Boolean(desktopPlay?.active), click: () => desktopPlay?.stop() },
         { label: state.sleeping ? 'Wake up' : 'Take a nap', click: () => actionFromMenu(state.sleeping ? 'wake' : 'sleep') },
         { type: 'separator' },
-        { label: 'Let puppy wander', type: 'checkbox', checked: state.settings.roaming, click: (item) => changePreferences({ roaming: item.checked }) },
-        { label: runtime.visible ? 'Hide puppy' : 'Show puppy', click: () => setPetVisible(!runtime.visible) },
-        { label: 'Bring puppy here', click: bringPetHome },
+        { label: 'Your companion', submenu: [
+            { id: 'pet-species-dog', label: 'Puppy', type: 'radio', checked: state.settings.species === 'dog', click: () => changePreferences({ species: 'dog' }) },
+            { id: 'pet-species-cat', label: 'Silver tabby', type: 'radio', checked: state.settings.species === 'cat', click: () => changePreferences({ species: 'cat' }) },
+        ] },
+        { label: `Pet size (${state.settings.size}%)`, submenu: [...new Set([...PET_SIZE_PRESETS, state.settings.size])].sort((first, second) => first - second).map((size) => ({
+            id: `pet-size-${size}`,
+            label: `${size}%${size === DEFAULT_PET_SIZE ? ' (default)' : ''}`,
+            type: 'radio',
+            checked: state.settings.size === size,
+            click: () => changePreferences({ size }),
+        })) },
+        { label: 'Let your friend wander', type: 'checkbox', checked: state.settings.roaming, click: (item) => changePreferences({ roaming: item.checked }) },
+        { label: runtime.visible ? 'Hide pet' : 'Show pet', click: () => setPetVisible(!runtime.visible) },
+        { label: 'Bring your friend here', click: bringPetHome },
         { type: 'separator' },
         { label: 'Quit Pawpal', click: () => app.quit() },
     ];
@@ -367,7 +398,7 @@ function createTray() {
         updateTray();
     } catch (error) {
         console.error(error.message);
-        runtime.warning = 'The system tray is unavailable. Keep this window open to control your puppy.';
+        runtime.warning = 'The system tray is unavailable. Right-click your pet to open Pawpal or quit.';
     }
 }
 
@@ -451,7 +482,7 @@ function createDesktopPlay() {
         secureWindow,
         openHome: showDashboard,
         canPlay: () => {
-            if (!windowReady || suspended) throw new Error('Your puppy is not ready just yet.');
+            if (!windowReady || suspended) throw new Error('Your friend is not ready just yet.');
             ensureCanPlay(advanceState(state));
         },
         onStart: () => {
@@ -584,7 +615,11 @@ function registerIpc() {
 if (!app.requestSingleInstanceLock()) {
     app.quit();
 } else {
-    app.on('second-instance', () => { if (state) showDashboard(); });
+    app.on('second-instance', (_event, argumentsList) => {
+        if (!state) return;
+        if (argumentsList.includes('--show-dashboard') && !argumentsList.includes('--hidden')) showDashboard();
+        else showPetOnLaunch();
+    });
     app.whenReady().then(() => {
         const loaded = loadState(dataPath);
         state = advanceState(loaded.state);
@@ -599,12 +634,11 @@ if (!app.requestSingleInstanceLock()) {
             { role: 'editMenu' },
         ]));
         registerIpc();
-        createDashboard();
         createPetWindow();
         createDesktopPlay();
         createTray();
-        if (!process.argv.includes('--hidden') || !tray) {
-            dashboard.once('ready-to-show', showDashboard);
+        if (process.argv.includes('--show-dashboard') && !process.argv.includes('--hidden')) {
+            showDashboard();
         } else if (process.platform === 'darwin') {
             app.dock?.hide();
         }
@@ -636,7 +670,10 @@ if (!app.requestSingleInstanceLock()) {
             setBehavior(restBehavior());
             recoverPetPosition();
         });
-        app.on('activate', showDashboard);
+        app.on('activate', () => {
+            if (dashboard && !dashboard.isDestroyed() && dashboard.isVisible()) showDashboard();
+            else showPetOnLaunch();
+        });
     }).catch((error) => {
         console.error(error);
         dialog.showErrorBox('Pawpal could not start', `${error.message}\n\nYour existing save has not been reset.`);

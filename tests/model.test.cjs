@@ -15,6 +15,8 @@ test('a new puppy has independent preferences and healthy defaults', () => {
     assert.equal(second.settings.coat, 'apricot');
     assert.equal(first.name, 'Mochi');
     assert.equal(first.settings.launchOnLogin, false);
+    assert.equal(first.settings.size, 30);
+    assert.equal(first.version, 2);
     assert.equal(first.position, null);
     assert.equal(first.activity[0].type, 'adopt');
 });
@@ -46,7 +48,7 @@ test('normalization accepts only known, correctly typed saved values', () => {
     assert.equal(restored.settings.roaming, true);
     assert.equal(restored.settings.alwaysOnTop, false);
     assert.equal(restored.settings.coat, 'apricot');
-    assert.equal(restored.settings.size, 'large');
+    assert.equal(restored.settings.size, 120);
     assert.equal(restored.settings.extra, undefined);
     assert.deepEqual(restored.position, { x: 11, y: -15 });
     assert.equal(restored.activity.length, 1);
@@ -140,7 +142,7 @@ test('completed games grant distinct, bounded rewards and persistent counters', 
     assert.deepEqual(normalizeState(bubbled, NOW).playStats, bubbled.playStats);
     assert.equal(rewardPlay({ ...initial, happiness: 99, energy: 1 }, 'ball', NOW).state.energy, 0);
     assert.equal(rewardPlay({ ...initial, happiness: 99 }, 'ball', NOW).state.happiness, 100);
-    assert.throws(() => rewardPlay(initial, 'unknown', NOW), /Unknown puppy game/);
+    assert.throws(() => rewardPlay(initial, 'unknown', NOW), /Unknown pet game/);
     assert.throws(() => rewardPlay({ ...initial, sleeping: true }, 'fetch', NOW), /napping/);
 });
 
@@ -148,6 +150,31 @@ test('old saves gain game counters and invalid saved counters are sanitized', ()
     assert.deepEqual(normalizeState({}, NOW).playStats, { fetch: 0, ball: 0, bubbles: 0 });
     const restored = normalizeState({ playStats: { fetch: -10, ball: 3.7, bubbles: Infinity, extra: 5 } }, NOW);
     assert.deepEqual(restored.playStats, { fetch: 0, ball: 3, bubbles: 0 });
+});
+
+test('old default sizes migrate to 30 percent without losing puppy progress', () => {
+    const saved = {
+        ...createState(NOW),
+        version: 1,
+        name: '豆豆',
+        affection: 42,
+        playStats: { fetch: 9, ball: 2, bubbles: 3 },
+        settings: { ...createState(NOW).settings, coat: 'cloud', size: 'medium' },
+    };
+    const migrated = normalizeState(saved, NOW);
+    assert.equal(migrated.version, 2);
+    assert.equal(migrated.settings.size, 30);
+    assert.equal(migrated.settings.coat, 'cloud');
+    assert.equal(migrated.name, '豆豆');
+    assert.equal(migrated.affection, 42);
+    assert.deepEqual(migrated.playStats, saved.playStats);
+    assert.equal(saved.settings.size, 'medium');
+    assert.equal(normalizeState({ settings: { size: 'small' } }, NOW).settings.size, 80);
+    assert.equal(normalizeState({ settings: { size: 'large' } }, NOW).settings.size, 120);
+    assert.equal(normalizeState({ settings: {} }, NOW).settings.size, 30);
+    assert.equal(normalizeState({ settings: { size: 43 } }, NOW).settings.size, 43);
+    assert.equal(normalizeState({ settings: { size: 500 } }, NOW).settings.size, 30);
+    assert.deepEqual(normalizeState(migrated, NOW), migrated);
 });
 
 test('activity history remains bounded', () => {
@@ -160,12 +187,77 @@ test('activity history remains bounded', () => {
 
 test('preferences reject unknown keys and invalid values atomically', () => {
     const initial = createState(NOW);
-    const updated = updateSettings(initial, { coat: 'cloud', roaming: false, size: 'large' });
+    const updated = updateSettings(initial, { coat: 'cloud', roaming: false, size: 120 });
     assert.equal(updated.settings.coat, 'cloud');
     assert.equal(updated.settings.roaming, false);
+    assert.equal(updated.settings.size, 120);
+    assert.equal(initial.settings.size, 30);
     assert.equal(initial.settings.coat, 'apricot');
-    for (const patch of [{ unknown: true }, { roaming: 'false' }, { size: 'huge' }, null, [], { coat: 'cocoa', extra: true }]) {
+    for (const patch of [{ unknown: true }, { roaming: 'false' }, { size: 'huge' }, { size: 'medium' }, { size: 19 }, { size: 151 }, { size: 30.5 }, null, [], { coat: 'cocoa', extra: true }]) {
         assert.throws(() => updateSettings(initial, patch), /Invalid preference/);
+    }
+});
+
+test('cat selection preserves progress and separate dog and cat appearances', () => {
+    const initial = {
+        ...createState(NOW), name: '豆豆', affection: 42,
+        playStats: { fetch: 9, ball: 2, bubbles: 3 }, position: { x: -800, y: 500 },
+    };
+    const dog = updateSettings(initial, { coat: 'cocoa', accessory: 'collar', size: 43 });
+    const cat = updateSettings(dog, { species: 'cat' });
+    assert.equal(cat.settings.species, 'cat');
+    assert.equal(cat.settings.catAccessory, 'none');
+    assert.equal(cat.settings.coat, 'cocoa');
+    assert.equal(cat.settings.accessory, 'collar');
+    assert.equal(cat.settings.size, 43);
+    assert.equal(cat.name, dog.name);
+    assert.equal(cat.affection, dog.affection);
+    assert.deepEqual(cat.playStats, dog.playStats);
+    assert.deepEqual(cat.position, dog.position);
+    assert.deepEqual(cat.activity, dog.activity);
+    assert.deepEqual(normalizeState(cat, NOW), cat);
+    assert.equal(dog.settings.species, 'dog');
+    const dressedCat = updateSettings(cat, { catAccessory: 'bandana' });
+    const returnedDog = updateSettings(dressedCat, { species: 'dog' });
+    assert.equal(returnedDog.settings.accessory, 'collar');
+    assert.equal(returnedDog.settings.catAccessory, 'bandana');
+});
+
+test('old saves stay dogs and invalid companion preferences are rejected', () => {
+    const legacy = { settings: { coat: 'cloud', accessory: 'collar', size: 'medium' } };
+    const restored = normalizeState(legacy, NOW);
+    assert.equal(restored.settings.species, 'dog');
+    assert.equal(restored.settings.catAccessory, 'none');
+    assert.equal(restored.settings.accessory, 'collar');
+    assert.equal(restored.settings.size, 30);
+    assert.equal(normalizeState({ settings: { species: 'fox', catAccessory: true } }, NOW).settings.species, 'dog');
+    assert.equal(normalizeState({ settings: { species: 'cat', catAccessory: 'cape' } }, NOW).settings.catAccessory, 'none');
+    for (const patch of [{ species: 'fox' }, { species: true }, { catAccessory: 'cape' }, { species: 'cat', catAccessory: null }]) {
+        assert.throws(() => updateSettings(restored, patch), /Invalid preference/);
+        assert.equal(restored.settings.species, 'dog');
+    }
+});
+
+test('cats knead when petted, nap, eat, and earn the same game rewards', () => {
+    const cat = updateSettings(createState(NOW), { species: 'cat' });
+    const petted = performAction(cat, 'pet', NOW);
+    assert.equal(petted.behavior, 'petting');
+    assert.match(petted.message, /Prrr/);
+    assert.match(petted.state.activity[0].text, /kneading/);
+    assert.equal(petted.state.affection, 1);
+    assert.equal(performAction(cat, 'feed', NOW).behavior, 'eating');
+    const sleeping = performAction(cat, 'sleep', NOW);
+    assert.equal(sleeping.behavior, 'sleeping');
+    assert.equal(performAction(sleeping.state, 'pet', NOW).behavior, 'sleeping');
+    assert.throws(() => ensureCanPlay(sleeping.state), /napping/);
+    const switched = updateSettings(sleeping.state, { species: 'dog' });
+    assert.equal(switched.sleeping, true);
+    for (const mode of ['fetch', 'ball', 'bubbles']) {
+        const played = rewardPlay(cat, mode, NOW);
+        assert.equal(played.state.settings.species, 'cat');
+        assert.equal(played.state.playStats[mode], 1);
+        assert.equal(played.state.energy, rewardPlay(createState(NOW), mode, NOW).state.energy);
+        assert.doesNotMatch(played.state.activity[0].text, /puppy/);
     }
 });
 

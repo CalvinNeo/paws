@@ -1,3 +1,5 @@
+const { DEFAULT_PET_SIZE, validPetSize } = require('./geometry.cjs');
+
 const HOUR = 60 * 60 * 1000;
 const MAX_OFFLINE_TIME = 8 * HOUR;
 const MAX_ACTIVITY = 12;
@@ -6,14 +8,17 @@ const DEFAULT_SETTINGS = Object.freeze({
     alwaysOnTop: true,
     launchOnLogin: false,
     reducedMotion: false,
+    species: 'dog',
     coat: 'apricot',
     accessory: 'bandana',
-    size: 'medium',
+    catAccessory: 'none',
+    size: DEFAULT_PET_SIZE,
 });
 const SETTING_CHOICES = Object.freeze({
+    species: ['dog', 'cat'],
     coat: ['apricot', 'cloud', 'cocoa'],
     accessory: ['bandana', 'collar', 'none'],
-    size: ['small', 'medium', 'large'],
+    catAccessory: ['bandana', 'collar', 'none'],
 });
 
 function clamp(value, minimum = 0, maximum = 100) {
@@ -32,7 +37,7 @@ function cleanName(value) {
 
 function createState(now = Date.now()) {
     return {
-        version: 1,
+        version: 2,
         name: 'Mochi',
         adoptedAt: now,
         updatedAt: now,
@@ -51,6 +56,7 @@ function createState(now = Date.now()) {
 
 function validSetting(key, value) {
     if (!Object.hasOwn(DEFAULT_SETTINGS, key)) return false;
+    if (key === 'size') return validPetSize(value);
     if (Object.hasOwn(SETTING_CHOICES, key)) return SETTING_CHOICES[key].includes(value);
     return typeof value === 'boolean';
 }
@@ -62,6 +68,9 @@ function normalizeState(input, now = Date.now()) {
     for (const key of Object.keys(settings)) {
         if (validSetting(key, input.settings?.[key])) settings[key] = input.settings[key];
     }
+    const legacySizes = { small: 80, medium: DEFAULT_PET_SIZE, large: 120 };
+    const savedSize = input.settings?.size;
+    if (typeof savedSize === 'string' && Object.hasOwn(legacySizes, savedSize)) settings.size = legacySizes[savedSize];
     const position = input.position;
     const activity = Array.isArray(input.activity)
         ? input.activity.filter((entry) => entry && typeof entry.text === 'string'
@@ -116,11 +125,13 @@ function performAction(current, action, now = Date.now()) {
     if (action === 'pet') {
         next.happiness = clamp(state.happiness + 7);
         next.affection += 1;
-        message = state.sleeping ? 'Dreaming of you. Zzz…' : 'My favorite human. ♥';
+        message = state.sleeping ? 'Dreaming of you. Zzz…'
+            : state.settings.species === 'cat' ? 'Prrr… making biscuits just for you. ♥' : 'My favorite human. ♥';
         behavior = state.sleeping ? 'sleeping' : 'petting';
-        activity = 'A few head scratches. A very happy pup.';
+        activity = state.settings.species === 'cat'
+            ? 'A few chin scratches. Soft purrs and kneading paws.' : 'A few head scratches. A very happy pup.';
     } else if (action === 'feed') {
-        if (state.sleeping) throw new Error('Let your puppy wake up before snack time.');
+        if (state.sleeping) throw new Error('Let your friend wake up before snack time.');
         if (state.fullness >= 98) throw new Error('A happy, full tummy! Save a treat for later.');
         next.fullness = clamp(state.fullness + 22);
         next.energy = clamp(state.energy + 3);
@@ -138,7 +149,7 @@ function performAction(current, action, now = Date.now()) {
         behavior = sleeping ? 'sleeping' : 'idle';
         activity = sleeping ? 'Curled up for a well-earned nap.' : 'Fresh paws. Ready for a new adventure.';
     } else {
-        throw new Error('That puppy trick is not available.');
+        throw new Error('That pet action is not available.');
     }
     if (['pet', 'feed'].includes(action)) next.interactions += 1;
     next.activity = addActivity(state, action, activity, now);
@@ -146,7 +157,7 @@ function performAction(current, action, now = Date.now()) {
 }
 
 function ensureCanPlay(state) {
-    if (state.sleeping) throw new Error('Your puppy is napping. Wake them up to play.');
+    if (state.sleeping) throw new Error('Your friend is napping. Wake them up to play.');
     if (state.energy < 12) throw new Error('A little nap first, then more adventures.');
 }
 
@@ -154,11 +165,11 @@ function rewardPlay(current, mode, now = Date.now()) {
     const rewards = {
         fetch: { energy: 4, happiness: 8, affection: 2, text: 'A bone fetched and proudly brought back.', message: 'Fetched it! Another throw? 🦴' },
         ball: { energy: 5, happiness: 10, affection: 2, text: 'Chased a bouncing ball and nudged it back.', message: 'Your turn! That was a good rally. 🎾' },
-        bubbles: { energy: 2, happiness: 5, affection: 1, text: 'Chased a floating bubble. Pop! One happy puppy.', message: 'Pop! Did you see that? 🫧' },
+        bubbles: { energy: 2, happiness: 5, affection: 1, text: 'Chased a floating bubble. Pop! One happy friend.', message: 'Pop! Did you see that? 🫧' },
     };
-    if (!Object.hasOwn(rewards, mode)) throw new Error('Unknown puppy game.');
+    if (!Object.hasOwn(rewards, mode)) throw new Error('Unknown pet game.');
     const state = advanceState(current, now);
-    if (state.sleeping) throw new Error('Your puppy is napping. Wake them up to play.');
+    if (state.sleeping) throw new Error('Your friend is napping. Wake them up to play.');
     const reward = rewards[mode];
     return {
         state: {
@@ -184,7 +195,7 @@ function updateSettings(state, patch) {
 }
 
 function renamePet(state, value, now = Date.now()) {
-    if (typeof value !== 'string' || !value.trim()) throw new Error('Give your puppy a name first.');
+    if (typeof value !== 'string' || !value.trim()) throw new Error('Give your friend a name first.');
     const name = cleanName(value);
     if (name === state.name) return state;
     return {

@@ -1,4 +1,4 @@
-import './puppy.js';
+import './pet-avatar.js';
 
 const bridge = window.pawpal;
 const puppy = document.getElementById('desktop-puppy');
@@ -16,6 +16,10 @@ function setInteractive(value) {
 }
 
 function renderState(snapshot) {
+    if (puppy.getAttribute('species') !== snapshot.pet.settings.species) {
+        finishDrag('cancel');
+        setInteractive(false);
+    }
     puppy.update(snapshot);
     document.body.classList.toggle('reduced-motion', snapshot.pet.settings.reducedMotion);
     document.getElementById('desktop-name').textContent = snapshot.pet.name;

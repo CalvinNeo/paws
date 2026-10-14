@@ -28,7 +28,7 @@ class DesktopPlay {
     }
 
     start(mode) {
-        if (!Object.hasOwn(PLAY_MODES, mode)) throw new Error('Choose one of the available puppy games.');
+        if (!Object.hasOwn(PLAY_MODES, mode)) throw new Error('Choose one of the available pet games.');
         this.options.canPlay();
         this.stop(false);
         const petWindow = this.options.getPetWindow();

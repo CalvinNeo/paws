@@ -1,7 +1,14 @@
-const PET_SCALES = Object.freeze({ small: 0.8, medium: 1, large: 1.2 });
+const DEFAULT_PET_SIZE = 30;
+const MIN_PET_SIZE = 20;
+const MAX_PET_SIZE = 150;
+const PET_SIZE_PRESETS = Object.freeze([20, 30, 50, 75, 100, 120, 150]);
 
-function petSize(size = 'medium') {
-    const scale = PET_SCALES[size] ?? PET_SCALES.medium;
+function validPetSize(size) {
+    return Number.isInteger(size) && size >= MIN_PET_SIZE && size <= MAX_PET_SIZE;
+}
+
+function petSize(size = DEFAULT_PET_SIZE) {
+    const scale = (validPetSize(size) ? size : DEFAULT_PET_SIZE) / 100;
     return { width: Math.round(300 * scale), height: Math.round(266 * scale) };
 }
 
@@ -36,4 +43,7 @@ function walkStep(bounds, direction, elapsedSeconds, workArea, speed = 27) {
     };
 }
 
-module.exports = { PET_SCALES, petSize, clampBounds, homeBounds, walkStep };
+module.exports = {
+    DEFAULT_PET_SIZE, MIN_PET_SIZE, MAX_PET_SIZE, PET_SIZE_PRESETS,
+    validPetSize, petSize, clampBounds, homeBounds, walkStep,
+};

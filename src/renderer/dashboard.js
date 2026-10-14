@@ -1,4 +1,4 @@
-import './puppy.js';
+import './pet-avatar.js';
 import { renderIcons } from './icons.js';
 
 renderIcons();
@@ -11,8 +11,9 @@ const viewTitles = {
 };
 const activityEmoji = { adopt: '🐾', pet: '🤍', feed: '🦴', play: '🎾', sleep: '🌙', wake: '☀️', rename: '✏️' };
 const genericExplanations = {
-    accessory: 'Choose a terracotta Bandana, a sage Collar, or Au naturel. Changes appear on your desktop puppy immediately.',
-    size: 'Choose how large your desktop puppy appears. The puppy stays on the current screen and keeps their paws near the same spot.',
+    accessory: 'Choose a terracotta Bandana, a sage Collar, or Au naturel. Each companion remembers their own accessory.',
+    species: 'Choose Puppy (🐶) or Silver tabby (🐱). Only one companion appears at a time. Your name, care and game progress are kept; each companion remembers their accessory. Switching safely puts toys away.',
+    size: 'Reset your companion to 30% of the original width and height. They stay on the current screen and keep their paws near the same spot.',
 };
 let currentState;
 let activeView = 'home';
@@ -99,8 +100,15 @@ function updateCareButtons() {
 function renderState(snapshot) {
     currentState = snapshot;
     const { pet, mood, friendship, runtime } = snapshot;
+    const isCat = pet.settings.species === 'cat';
     document.body.classList.toggle('reduced-motion', pet.settings.reducedMotion);
-    document.querySelectorAll('puppy-dog').forEach((puppy) => puppy.update(snapshot));
+    document.querySelectorAll('pet-avatar').forEach((avatar) => avatar.update(snapshot));
+    element('dog-coat-card').hidden = isCat;
+    element('cat-coat-card').hidden = !isCat;
+    element('appearance-description').textContent = isCat ? 'A familiar face. A little purr.' : 'Same little soul. A fresh little look.';
+    document.querySelectorAll('[data-setting="accessory"], [data-setting="catAccessory"]').forEach((button) => {
+        button.dataset.setting = isCat ? 'catAccessory' : 'accessory';
+    });
     element('pet-name').textContent = pet.name;
     element('pet-name').title = pet.name;
     element('wardrobe-name').textContent = pet.name;
@@ -116,7 +124,7 @@ function renderState(snapshot) {
     element('sleep-emoji').textContent = pet.sleeping ? '☀️' : '🌙';
     element('sleep-label').textContent = pet.sleeping ? 'Wake up' : 'Take a nap';
     element('sleep-description').textContent = pet.sleeping ? 'Hello, sunshine' : 'Dream a little';
-    element('visibility-button').textContent = runtime.visible ? 'Hide puppy' : 'Show puppy';
+    element('visibility-button').textContent = runtime.visible ? 'Hide pet' : 'Show pet';
     element('play-status').hidden = !snapshot.game;
     element('play-dialog-stop').hidden = !snapshot.game;
     if (snapshot.game) {
@@ -139,8 +147,11 @@ function renderState(snapshot) {
         input.checked = pet.settings[input.dataset.preference];
     });
     document.querySelectorAll('[data-setting]').forEach((button) => {
-        button.setAttribute('aria-pressed', String(pet.settings[button.dataset.setting] === button.dataset.value));
+        button.setAttribute('aria-pressed', String(String(pet.settings[button.dataset.setting]) === button.dataset.value));
     });
+    element('pet-size-range').value = String(pet.settings.size);
+    element('pet-size-value').textContent = `${pet.settings.size}%`;
+    element('pet-size-range').setAttribute('aria-valuetext', `${pet.settings.size}% of original size`);
     element('setting-launchOnLogin').disabled = !snapshot.canLaunchOnLogin;
     element('login-description').textContent = snapshot.canLaunchOnLogin
         ? 'Launch Pawpal when you sign in to your computer.'
@@ -155,7 +166,7 @@ function renderState(snapshot) {
 
 async function request(operation, payload) {
     if (!bridge) {
-        showToast('Open Pawpal with npm start to use your desktop puppy.');
+        showToast('Open Pawpal with npm start to use your desktop companion.');
         return false;
     }
     try {
@@ -279,7 +290,16 @@ document.querySelectorAll('[data-preference]').forEach((input) => {
     });
 });
 document.querySelectorAll('[data-setting]').forEach((button) => {
-    button.addEventListener('click', () => request('preferences', { [button.dataset.setting]: button.dataset.value }));
+    button.addEventListener('click', () => request('preferences', {
+        [button.dataset.setting]: button.dataset.setting === 'size' ? Number(button.dataset.value) : button.dataset.value,
+    }));
+});
+element('pet-size-range').addEventListener('input', (event) => {
+    element('pet-size-value').textContent = `${event.target.value}%`;
+    event.target.setAttribute('aria-valuetext', `${event.target.value}% of original size`);
+});
+element('pet-size-range').addEventListener('change', async (event) => {
+    if (!await request('preferences', { size: Number(event.target.value) }) && currentState) renderState(currentState);
 });
 element('explain-button').addEventListener('click', () => setExplainMode(!explainMode));
 element('help-button').addEventListener('click', () => {
@@ -321,8 +341,8 @@ if (bridge) {
     await request('getState');
 } else {
     element('warning-banner').hidden = false;
-    element('warning-banner').textContent = 'This is a desktop application. Run npm start from the puppy folder to meet your puppy.';
-    document.querySelectorAll('[data-action], [data-setting], [data-preference], [data-window], #rename-button').forEach((control) => { control.disabled = true; });
+    element('warning-banner').textContent = 'This is a desktop application. Run npm start from the puppy folder to meet your companion.';
+    document.querySelectorAll('[data-action], [data-setting], [data-preference], [data-window], #rename-button, #pet-size-range').forEach((control) => { control.disabled = true; });
 }
 
 window.addEventListener('focus', () => { if (bridge) request('getState'); });
