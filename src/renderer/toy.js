@@ -23,8 +23,7 @@ function renderState(state) {
     document.body.dataset.completed = String(state.completed);
     document.body.dataset.mode = state.mode;
     for (const shape of document.querySelectorAll('[data-kind]')) shape.toggleAttribute('hidden', shape.dataset.kind !== state.toy);
-    const instruction = state.toy === 'bubble' ? 'Tap or drag this bubble for your puppy to chase.' : `Drag this ${state.toy} and release to throw. A quick flick sends it farther.`;
-    toy.setAttribute('aria-label', `${instruction} Right-click to put toys away.`);
+    toy.setAttribute('aria-label', `${state.label}. ${state.instruction} Right-click to put toys away.`);
 }
 
 function release(phase) {

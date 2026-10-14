@@ -11,8 +11,9 @@ const viewTitles = {
 };
 const activityEmoji = { adopt: '🐾', pet: '🤍', feed: '🦴', play: '🎾', sleep: '🌙', wake: '☀️', rename: '✏️' };
 const genericExplanations = {
-    accessory: 'Choose a terracotta Bandana, a sage Collar, or Au naturel. Each companion remembers their own accessory.',
-    species: 'Choose Puppy (🐶) or Silver tabby (🐱). Only one companion appears at a time. Your name, care and game progress are kept; each companion remembers their accessory. Switching safely puts toys away.',
+    accessory: 'Choose a terracotta Bandana, a sage Collar, or Au naturel for your puppy. Your cat keeps their real photographic appearance.',
+    species: 'Choose Puppy (🐶) or Your cat (🐱). The cat uses private, background-free photographs rather than a cartoon. Only one companion appears at a time. Each has their own name, care, games, progress, size and position. Switching restores that companion and safely puts toys away.',
+    catPose: 'Choose a real-photo resting pose: Sitting, Loaf, or Belly up. Napping shows a curled-up photograph; play uses a reaching pose. These are photographs, not a rotating 3D model or a generated walking animation.',
     size: 'Reset your companion to 30% of the original width and height. They stay on the current screen and keep their paws near the same spot.',
 };
 let currentState;
@@ -23,8 +24,6 @@ let blockNextClick = false;
 let toastTimer;
 let sceneTimer;
 let activitySignature = '';
-const gameLabels = { fetch: '🦴 Fetch a bone', ball: '🎾 Ball rally', bubbles: '🫧 Bubble chase' };
-const gameProgress = { fetch: 'bones returned', ball: 'rallies completed', bubbles: 'bubbles caught' };
 
 for (const button of document.querySelectorAll('[data-setting]')) {
     button.dataset.explain ||= genericExplanations[button.dataset.setting];
@@ -41,7 +40,7 @@ function updateSceneMessage(message) {
     clearTimeout(sceneTimer);
     element('scene-message').textContent = message;
     sceneTimer = setTimeout(() => {
-        element('scene-message').textContent = currentState?.pet.sleeping ? 'A little dream. A little snore.' : 'Happy you’re here. ♡';
+        element('scene-message').textContent = currentState.pet.sleeping ? currentState.companion.sleepMessage : currentState.companion.welcome;
     }, 4500);
 }
 
@@ -54,7 +53,7 @@ function relativeTime(timestamp) {
 }
 
 function renderActivity(pet) {
-    const signature = JSON.stringify(pet.activity);
+    const signature = `${pet.settings.species}:${JSON.stringify(pet.activity)}`;
     if (signature !== activitySignature) {
         activitySignature = signature;
         const fragment = document.createDocumentFragment();
@@ -63,7 +62,8 @@ function renderActivity(pet) {
             const emoji = document.createElement('span');
             emoji.className = 'activity-emoji';
             emoji.setAttribute('aria-hidden', 'true');
-            emoji.textContent = activityEmoji[entry.type] || '🐾';
+            emoji.textContent = currentState.companion.care[entry.type]?.emoji
+                || (entry.type === 'play' ? Object.values(currentState.companion.games)[0].emoji : activityEmoji[entry.type]) || '🐾';
             const text = document.createElement('span');
             text.className = 'activity-text';
             text.textContent = entry.text;
@@ -84,30 +84,86 @@ function renderActivity(pet) {
 
 function updateCareButtons() {
     if (!currentState) return;
-    const { pet } = currentState;
+    const { pet, companion } = currentState;
     for (const button of document.querySelectorAll('[data-action]')) {
         const action = button.dataset.action;
         button.disabled = pendingAction
             || (action === 'feed' && (pet.sleeping || pet.fullness >= 98))
-            || (action === 'play' && (pet.sleeping || pet.energy < 12));
+            || (action === 'play' && (pet.sleeping || pet.energy < companion.minimumPlayEnergy));
         button.setAttribute('aria-busy', String(pendingAction));
     }
     document.querySelectorAll('[data-play-mode]').forEach((button) => {
-        button.disabled = pendingAction || pet.sleeping || pet.energy < 12;
+        button.disabled = pendingAction || pet.sleeping || pet.energy < companion.minimumPlayEnergy;
     });
 }
 
+function renderCompanion(companion) {
+    const isCat = companion.species === 'cat';
+    for (const [action, care] of Object.entries(companion.care)) {
+        const button = document.querySelector(`.care-button[data-action="${action}"]`);
+        button.dataset.explain = care.explanation;
+        button.querySelector('.care-emoji').textContent = care.emoji;
+        button.querySelector('strong').textContent = care.label;
+        button.querySelector('small').textContent = care.description;
+    }
+    const preview = document.querySelector('.preview-pet');
+    preview.dataset.explain = `${companion.care.pet.explanation} On the desktop, click to pet them, or drag them to a new spot.`;
+    preview.setAttribute('aria-label', companion.care.pet.menu);
+    preview.title = companion.care.pet.menu;
+    const playButton = document.querySelector('[data-action="play"]');
+    playButton.dataset.explain = companion.playExplanation;
+    playButton.querySelector('.care-emoji').textContent = isCat ? '🧶' : '🎾';
+    playButton.querySelector('small').textContent = companion.playDescription;
+    element('fullness-emoji').textContent = companion.care.feed.emoji;
+    element('fullness-stat').dataset.explain = `Fullness (${companion.care.feed.emoji}) goes down gently over time. ${companion.care.feed.explanation}`;
+    element('happiness-stat').dataset.explain = `Happiness (🤍) slowly drifts down while your ${companion.species} waits. ${companion.care.pet.label} and playtime bring it back up.`;
+    element('help-hello').textContent = `Click your pet for ${companion.care.pet.label} (${companion.care.pet.emoji}). Double-clicks and repeated clicks also just pet them, without opening their home. Drag to move them. To open their home, right-click and choose Open …'s home, or use the system tray.`;
+    element('help-care').textContent = `${companion.care.feed.label} (${companion.care.feed.emoji}) fills their tummy. Playtime (${isCat ? '🧶' : '🎾'}) brings joy but uses energy. Take a nap (🌙) to recharge; Wake up (☀️) when it's time.`;
+    element('help-companion').textContent = isCat
+        ? 'Your cat rests in place by default. Choose Sitting, Loaf or Belly up in Wardrobe; petting keeps their chosen pose. Play uses a reaching photo and naps use a curled-up photo. These are real photographic poses, not a generated walking cycle or a rotating 3D model. Switching companions restores each pet’s own name, care, games, progress, size and position.'
+        : 'Your puppy takes short walks, stays within the screen, and pauses when you hover. Choose Puppy (🐶) or Your cat (🐱) in Wardrobe or the right-click menu → Your companion. Each has their own name, care, games, progress, size and position. Your puppy’s coat and accessories stay with your puppy.';
+    element('help-games').textContent = companion.playHelp;
+    element('name-input').placeholder = companion.defaultName;
+    const choices = document.createDocumentFragment();
+    for (const [mode, game] of Object.entries(companion.games)) {
+        const button = document.createElement('button');
+        button.className = 'game-choice';
+        button.dataset.playMode = mode;
+        button.innerHTML = '<span class="game-emoji"></span><span class="game-copy"><strong></strong><span></span><small></small></span><span data-icon="arrow"></span>';
+        button.querySelector('.game-emoji').textContent = game.emoji;
+        button.querySelector('strong').textContent = game.label;
+        button.querySelector('.game-copy > span').textContent = game.description;
+        button.querySelector('small').id = `game-total-${mode}`;
+        choices.append(button);
+    }
+    element('game-choices').replaceChildren(choices);
+    renderIcons(element('game-choices'));
+}
+
 function renderState(snapshot) {
+    const changingSpecies = currentState?.pet.settings.species !== snapshot.pet.settings.species;
     currentState = snapshot;
-    const { pet, mood, friendship, runtime } = snapshot;
+    const { pet, companion, mood, friendship, runtime } = snapshot;
+    if (changingSpecies) {
+        clearTimeout(toastTimer);
+        clearTimeout(sceneTimer);
+        element('toast').hidden = true;
+        element('scene-message').textContent = pet.sleeping ? companion.sleepMessage : companion.welcome;
+        element('play-dialog').close();
+        element('explanation-dialog').close();
+        renderCompanion(companion);
+    }
     const isCat = pet.settings.species === 'cat';
     document.body.classList.toggle('reduced-motion', pet.settings.reducedMotion);
     document.querySelectorAll('pet-avatar').forEach((avatar) => avatar.update(snapshot));
     element('dog-coat-card').hidden = isCat;
     element('cat-coat-card').hidden = !isCat;
-    element('appearance-description').textContent = isCat ? 'A familiar face. A little purr.' : 'Same little soul. A fresh little look.';
-    document.querySelectorAll('[data-setting="accessory"], [data-setting="catAccessory"]').forEach((button) => {
-        button.dataset.setting = isCat ? 'catAccessory' : 'accessory';
+    element('dog-accessory-card').hidden = isCat;
+    element('cat-pose-card').hidden = !isCat;
+    element('cat-assets-note').hidden = snapshot.catAvailable;
+    element('appearance-description').textContent = isCat ? 'Your real cat. Right here.' : 'Same little soul. A fresh little look.';
+    document.querySelectorAll('[data-setting="species"][data-value="cat"]').forEach((button) => {
+        button.disabled = !snapshot.catAvailable;
     });
     element('pet-name').textContent = pet.name;
     element('pet-name').title = pet.name;
@@ -128,10 +184,11 @@ function renderState(snapshot) {
     element('play-status').hidden = !snapshot.game;
     element('play-dialog-stop').hidden = !snapshot.game;
     if (snapshot.game) {
-        element('play-status-text').textContent = `${gameLabels[snapshot.game.mode]} · ${snapshot.game.completed} this session · ${snapshot.game.phase === 'ready' ? 'Your turn!' : 'Playing together'}`;
+        const game = companion.games[snapshot.game.mode];
+        element('play-status-text').textContent = `${game.emoji} ${game.label} · ${snapshot.game.completed} this session · ${snapshot.game.phase === 'ready' ? 'Your turn!' : 'Playing together'}`;
     }
-    for (const mode of Object.keys(gameLabels)) {
-        element(`game-total-${mode}`).textContent = `${pet.playStats?.[mode] ?? 0} ${gameProgress[mode]}`;
+    for (const [mode, game] of Object.entries(companion.games)) {
+        element(`game-total-${mode}`).textContent = `${pet.playStats?.[mode] ?? 0} ${game.progress}`;
     }
     element('window-controls').hidden = snapshot.platform === 'darwin';
     element('app-version').textContent = `v${snapshot.version}`;
@@ -267,15 +324,14 @@ document.querySelectorAll('[data-action]').forEach((button) => {
         updateCareButtons();
     });
 });
-document.querySelectorAll('[data-play-mode]').forEach((button) => {
-    button.addEventListener('click', async () => {
-        if (pendingAction) return;
-        pendingAction = true;
-        updateCareButtons();
-        if (await request('play', button.dataset.playMode)) element('play-dialog').close();
-        pendingAction = false;
-        updateCareButtons();
-    });
+element('game-choices').addEventListener('click', async (event) => {
+    const button = event.target.closest('[data-play-mode]');
+    if (!button || button.disabled || pendingAction) return;
+    pendingAction = true;
+    updateCareButtons();
+    if (await request('play', button.dataset.playMode)) element('play-dialog').close();
+    pendingAction = false;
+    updateCareButtons();
 });
 document.querySelectorAll('[data-stop-play]').forEach((button) => {
     button.addEventListener('click', () => request('play', 'stop'));
@@ -307,7 +363,7 @@ element('help-button').addEventListener('click', () => {
     element('help-dialog').showModal();
 });
 element('rename-button').addEventListener('click', () => {
-    element('name-input').value = currentState?.pet.name || 'Mochi';
+    element('name-input').value = currentState?.pet.name || '';
     element('rename-dialog').showModal();
     element('name-input').select();
 });

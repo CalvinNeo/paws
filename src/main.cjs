@@ -1,11 +1,14 @@
 const path = require('node:path');
+const fs = require('node:fs');
 const { pathToFileURL } = require('node:url');
 const { app, BrowserWindow, ipcMain, Menu, Tray, nativeImage, screen, powerMonitor, dialog } = require('electron');
 const { advanceState, performAction, updateSettings, renamePet, getMood, getFriendship, ensureCanPlay, rewardPlay } = require('./model.cjs');
 const { DEFAULT_PET_SIZE, PET_SIZE_PRESETS, petSize, clampBounds, homeBounds, walkStep } = require('./geometry.cjs');
 const { loadState, saveState } = require('./store.cjs');
 const { DesktopPlay } = require('./desktop-play.cjs');
-const { PLAY_MODES } = require('./play.cjs');
+const { getCompanion, getGame } = require('./companions/index.cjs');
+const { rememberProfile, switchProfile } = require('./profiles.cjs');
+const catProfile = require('../assets/cat/poses.mjs').default;
 
 app.setName('Pawpal');
 if (!app.isPackaged && process.env.PAWPAL_USER_DATA) {
@@ -16,8 +19,10 @@ if (process.platform === 'win32') app.setAppUserModelId('com.openboardgame.pawpa
 const rendererDirectory = path.join(__dirname, 'renderer');
 const iconPath = path.join(__dirname, '..', 'assets', 'icon.png');
 const dataPath = path.join(app.getPath('userData'), 'companion.json');
+const catAvailable = Object.values(catProfile.poses).every((pose) => fs.existsSync(path.join(__dirname, '..', 'assets', 'cat', pose.file)));
 const runtime = { behavior: 'idle', direction: -1, visible: true, warning: null };
 let state;
+let profiles;
 let dashboard;
 let petWindow;
 let tray;
@@ -40,6 +45,7 @@ let desktopPlay;
 function snapshot() {
     return {
         pet: state,
+        companion: getCompanion(state.settings.species),
         mood: getMood(state),
         friendship: getFriendship(state),
         runtime: { ...runtime },
@@ -47,6 +53,7 @@ function snapshot() {
         platform: process.platform,
         version: app.getVersion(),
         canLaunchOnLogin: app.isPackaged && ['darwin', 'win32'].includes(process.platform),
+        catAvailable,
     };
 }
 
@@ -64,7 +71,8 @@ function saveNow() {
     clearTimeout(saveTimer);
     if (!state) return;
     try {
-        saveState(dataPath, state);
+        profiles = rememberProfile(profiles, state);
+        saveState(dataPath, profiles);
         if (runtime.warning?.startsWith('Could not save')) {
             runtime.warning = null;
             broadcast();
@@ -145,7 +153,7 @@ function secureWindow(window, filename) {
         console.error(`Pawpal renderer stopped: ${details.reason}`);
         if (window === petWindow) endDrag(false);
         desktopPlay?.stop(false);
-        runtime.warning = 'A puppy window stopped unexpectedly. Restart Pawpal if it does not recover.';
+        runtime.warning = 'A pet window stopped unexpectedly. Restart Pawpal if it does not recover.';
         broadcast();
     });
 }
@@ -315,9 +323,15 @@ function bringPetHome() {
 }
 
 function changePreferences(patch) {
-    const updated = updateSettings(state, patch);
-    const changingSpecies = updated.settings.species !== state.settings.species;
-    if (updated.settings.size !== state.settings.size || changingSpecies) desktopPlay?.stop(false);
+    if (!patch || typeof patch !== 'object' || Array.isArray(patch)) throw new Error('Invalid preferences.');
+    const species = Object.hasOwn(patch, 'species') ? patch.species : state.settings.species;
+    getCompanion(species);
+    const changingSpecies = species !== state.settings.species;
+    const target = changingSpecies ? profiles.pets[species] : state;
+    const updated = updateSettings({ ...target, settings: { ...target.settings, launchOnLogin: state.settings.launchOnLogin } }, patch);
+    if (species === 'cat' && !catAvailable) {
+        throw new Error('Cat photos are not installed. Prepare the private photo assets locally, then restart Pawpal.');
+    }
     if (Object.hasOwn(patch, 'launchOnLogin') && patch.launchOnLogin !== state.settings.launchOnLogin) {
         if (!app.isPackaged || !['darwin', 'win32'].includes(process.platform)) {
             throw new Error('Launch at login is available after installing Pawpal.');
@@ -328,16 +342,26 @@ function changePreferences(patch) {
             throw new Error('Your system did not apply this change. Check system login-item settings.');
         }
     }
+    if (updated.settings.size !== state.settings.size || changingSpecies) desktopPlay?.stop(false);
     if (changingSpecies) {
         endDrag(false);
+        rememberPosition();
+        const selected = switchProfile(profiles, state, species);
+        profiles = selected.profiles;
+        state = selected.state;
         hovering = false;
         runtime.behavior = restBehavior();
         runtime.carrying = null;
         behaviorUntil = 0;
+        lastActionAt = 0;
         nextWanderAt = Date.now() + 12000;
         setMousePassthrough(true);
     }
     state = { ...state, settings: updated.settings };
+    if (changingSpecies) {
+        const area = state.position ? screen.getDisplayNearestPoint(state.position).workArea : screen.getDisplayMatching(petWindow.getBounds()).workArea;
+        petWindow.setBounds(state.position ? clampBounds({ ...petSize(state.settings.size), ...state.position }, area) : homeBounds(state.settings.size, area));
+    }
     applyPetWindowSettings();
     if (desktopPlay?.active) petWindow.setAlwaysOnTop(true, 'floating');
     updateTray();
@@ -346,12 +370,14 @@ function changePreferences(patch) {
 }
 
 function contextMenuTemplate() {
+    const companion = getCompanion(state.settings.species);
     return [
         { label: `Open ${state.name}'s home`, click: showDashboard },
         { type: 'separator' },
-        { label: 'Give a head scratch', click: () => actionFromMenu('pet') },
-        { label: 'Give a treat', enabled: !state.sleeping && state.fullness < 98, click: () => actionFromMenu('feed') },
-        { label: 'Play together', enabled: !state.sleeping && state.energy >= 12, submenu: Object.entries(PLAY_MODES).map(([mode, game]) => ({
+        { id: 'care-pet', label: companion.care.pet.menu, click: () => actionFromMenu('pet') },
+        { id: 'care-feed', label: companion.care.feed.menu, enabled: !state.sleeping && state.fullness < 98, click: () => actionFromMenu('feed') },
+        { label: 'Play together', enabled: !state.sleeping && state.energy >= companion.minimumPlayEnergy, submenu: Object.entries(companion.games).map(([mode, game]) => ({
+            id: `game-${mode}`,
             label: game.label,
             click: () => {
                 try { startPlay(mode); } catch (error) { broadcast(error.message); }
@@ -362,8 +388,11 @@ function contextMenuTemplate() {
         { type: 'separator' },
         { label: 'Your companion', submenu: [
             { id: 'pet-species-dog', label: 'Puppy', type: 'radio', checked: state.settings.species === 'dog', click: () => changePreferences({ species: 'dog' }) },
-            { id: 'pet-species-cat', label: 'Silver tabby', type: 'radio', checked: state.settings.species === 'cat', click: () => changePreferences({ species: 'cat' }) },
+            { id: 'pet-species-cat', label: 'Your cat · real photos', type: 'radio', checked: state.settings.species === 'cat', enabled: catAvailable, click: () => changePreferences({ species: 'cat' }) },
         ] },
+        { label: 'Cat pose', visible: state.settings.species === 'cat', submenu: [
+            ['sitting', 'Sitting'], ['loaf', 'Loaf'], ['relaxed', 'Belly up'],
+        ].map(([catPose, label]) => ({ id: `cat-pose-${catPose}`, label, type: 'radio', checked: state.settings.catPose === catPose, click: () => changePreferences({ catPose }) })) },
         { label: `Pet size (${state.settings.size}%)`, submenu: [...new Set([...PET_SIZE_PRESETS, state.settings.size])].sort((first, second) => first - second).map((size) => ({
             id: `pet-size-${size}`,
             label: `${size}%${size === DEFAULT_PET_SIZE ? ' (default)' : ''}`,
@@ -447,7 +476,7 @@ function tickMotion() {
             nextWanderAt = now + 9000 + Math.random() * 14000;
         }
     }
-    const canWander = !state.sleeping && state.energy >= 12 && state.settings.roaming
+    const canWander = !state.sleeping && state.energy >= getCompanion(state.settings.species).minimumPlayEnergy && state.settings.roaming
         && !state.settings.reducedMotion && !hovering && !menuOpen;
     if (!canWander) {
         if (runtime.behavior === 'walking') pauseWandering();
@@ -478,12 +507,13 @@ function trustedSender(event, onlyPet = false) {
 function createDesktopPlay() {
     desktopPlay = new DesktopPlay({
         getPetWindow: () => petWindow,
+        getSpecies: () => state.settings.species,
         webPreferences: commonPreferences,
         secureWindow,
         openHome: showDashboard,
-        canPlay: () => {
+        canPlay: (mode) => {
             if (!windowReady || suspended) throw new Error('Your friend is not ready just yet.');
-            ensureCanPlay(advanceState(state));
+            ensureCanPlay(advanceState(state), mode);
         },
         onStart: () => {
             endDrag(false);
@@ -518,7 +548,7 @@ function createDesktopPlay() {
             rememberPosition();
             updateTray();
             broadcast(reward.message);
-            return state.energy >= 12;
+            return state.energy >= getCompanion(state.settings.species).minimumPlayEnergy;
         },
     });
 }
@@ -526,7 +556,7 @@ function createDesktopPlay() {
 function startPlay(mode) {
     desktopPlay.start(mode);
     updateTray();
-    broadcast(PLAY_MODES[mode].instruction);
+    broadcast(getGame(state.settings.species, mode).instruction);
     return snapshot();
 }
 
@@ -622,8 +652,15 @@ if (!app.requestSingleInstanceLock()) {
     });
     app.whenReady().then(() => {
         const loaded = loadState(dataPath);
+        profiles = loaded.profiles;
         state = advanceState(loaded.state);
         runtime.warning = loaded.warning;
+        if (state.settings.species === 'cat' && !catAvailable) {
+            const fallback = switchProfile(profiles, state, 'dog');
+            profiles = fallback.profiles;
+            state = fallback.state;
+            runtime.warning = 'Your private cat photos are missing. Showing Puppy instead; your cat’s separate profile is preserved.';
+        }
         runtime.behavior = restBehavior();
         if (app.isPackaged) state.settings.launchOnLogin = app.getLoginItemSettings().openAtLogin;
         Menu.setApplicationMenu(Menu.buildFromTemplate([

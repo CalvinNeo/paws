@@ -9,13 +9,14 @@
     <script type="module" src="toy.js"></script>
 </head>
 <body>
-    <svg id="toy" viewBox="0 0 100 100" role="button" aria-label="Puppy toy. Drag and release to throw. Right-click to put away.">
+    <svg id="toy" viewBox="0 0 100 100" role="button" aria-label="Pet toy. Drag and release to play. Right-click to put away.">
         <defs>
             <linearGradient id="bone-fur" x2="0.3" y2="1"><stop stop-color="#fff5db"/><stop offset="1" stop-color="#d9b97e"/></linearGradient>
             <radialGradient id="ball-color" cx=".3" cy=".2"><stop stop-color="#c0d796"/><stop offset="1" stop-color="#739255"/></radialGradient>
+            <radialGradient id="yarn-color" cx=".3" cy=".2"><stop stop-color="#e4d4e5"/><stop offset="1" stop-color="#957b9c"/></radialGradient>
             <radialGradient id="bubble-color" cx=".35" cy=".3"><stop stop-color="#faffff" stop-opacity=".32"/><stop offset=".8" stop-color="#b2d8e8" stop-opacity=".45"/><stop offset="1" stop-color="#f8cbe3" stop-opacity=".85"/></radialGradient>
         </defs>
-        <g data-kind="bone" class="toy-shape" fill="url(#bone-fur)">
+        <g data-kind="bone" class="toy-shape" fill="url(#bone-fur)" hidden>
             <rect data-hit x="22" y="44" width="56" height="12"/>
             <circle data-hit cx="22" cy="34" r="14"/><circle data-hit cx="22" cy="66" r="14"/>
             <circle data-hit cx="78" cy="34" r="14"/><circle data-hit cx="78" cy="66" r="14"/>
@@ -32,6 +33,12 @@
             <circle class="decoration" cx="50" cy="50" r="30.5" fill="none" stroke="#e8faff" stroke-width="1.7"/>
             <path class="decoration" d="M29 43q2-11 13-14m25 36q-6 10-19 8" fill="none" stroke="#fff" stroke-width="3.5" stroke-linecap="round" opacity=".9"/>
             <circle class="decoration" cx="47" cy="27" r="2" fill="#fff"/>
+        </g>
+        <g data-kind="yarn" class="toy-shape" hidden>
+            <circle data-hit cx="50" cy="50" r="28" fill="url(#yarn-color)"/>
+            <g class="decoration" fill="none" stroke="#f2e4f0" stroke-width="2.1" stroke-linecap="round" opacity=".85">
+                <path d="M29 35q27 5 40 27M25 42q24 1 39 28M31 28q16 0 35 14M43 24q-6 28 14 50M54 24q-9 25 14 40M26 57q20-11 46-10M30 67q17-13 43-12"/>
+            </g>
         </g>
     </svg>
 </body>

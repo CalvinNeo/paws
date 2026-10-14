@@ -1,6 +1,7 @@
 const path = require('node:path');
 const { BrowserWindow, Menu, screen } = require('electron');
-const { PlaySession, TOY_SIZE, PLAY_MODES, toyHitTest } = require('./play.cjs');
+const { PlaySession, TOY_SIZE, toyHitTest } = require('./play.cjs');
+const { getGame } = require('./companions/index.cjs');
 const { clampBounds } = require('./geometry.cjs');
 
 class DesktopPlay {
@@ -28,13 +29,13 @@ class DesktopPlay {
     }
 
     start(mode) {
-        if (!Object.hasOwn(PLAY_MODES, mode)) throw new Error('Choose one of the available pet games.');
-        this.options.canPlay();
+        getGame(this.options.getSpecies(), mode);
+        this.options.canPlay(mode);
         this.stop(false);
         const petWindow = this.options.getPetWindow();
         const petBounds = petWindow.getBounds();
         const workArea = screen.getDisplayMatching(petBounds).workArea;
-        this.session = new PlaySession(mode, clampBounds(petBounds, workArea), workArea);
+        this.session = new PlaySession(mode, clampBounds(petBounds, workArea), workArea, this.options.getSpecies());
         this.options.onStart();
         this.lastPose = '';
         this.ready = false;
@@ -109,7 +110,7 @@ class DesktopPlay {
     updateHitTest(cursor) {
         if (!this.session || this.session.drag) return;
         const bounds = this.window.getBounds();
-        const inside = toyHitTest(PLAY_MODES[this.session.mode].toy, { x: cursor.x - bounds.x, y: cursor.y - bounds.y });
+        const inside = toyHitTest(this.session.game.toy, { x: cursor.x - bounds.x, y: cursor.y - bounds.y });
         this.pointer(inside);
     }
 
@@ -119,8 +120,8 @@ class DesktopPlay {
         const now = performance.now();
         if (phase === 'start') {
             const bounds = this.window.getBounds();
-            if (!point || !toyHitTest(PLAY_MODES[this.session.mode].toy, point)) return;
-            this.options.canPlay();
+            if (!point || !toyHitTest(this.session.game.toy, point)) return;
+            this.options.canPlay(this.session.mode);
             if (this.session.beginDrag({ x: bounds.x + point.x, y: bounds.y + point.y }, now)) this.setPassthrough(false);
         } else if (phase === 'end' || phase === 'cancel') {
             this.session.endDrag(cursor, now, phase === 'cancel');
@@ -133,7 +134,7 @@ class DesktopPlay {
         if (!this.window) return;
         this.drag('cancel');
         Menu.buildFromTemplate([
-            { label: PLAY_MODES[this.session.mode].label, enabled: false },
+            { label: this.session.game.label, enabled: false },
             { label: 'Put toys away', click: () => this.stop() },
             { label: 'Open Pawpal', click: () => { this.stop(false); this.options.openHome(); } },
         ]).popup({ window: this.window, callback: () => this.setPassthrough(true) });

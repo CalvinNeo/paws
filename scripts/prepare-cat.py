@@ -10,7 +10,9 @@ from PIL import Image, ImageChops, ImageDraw
 
 ROOT = Path(__file__).resolve().parent.parent
 ASSET_DIRECTORY = ROOT / 'assets' / 'cat'
-PROFILE = json.loads((ASSET_DIRECTORY / 'poses.json').read_text())
+PROFILE = json.loads(subprocess.check_output([
+    'node', '-e', "process.stdout.write(JSON.stringify(require('./assets/cat/poses.mjs').default))",
+], cwd=ROOT, text=True))
 REFERENCES = {
     'sitting': ('ad07d7f5e291178d63aa5689261217e6', 480, 470),
     'loaf': ('c0f60f7e800ea750341bf9ee23df40a8', 418, 365),

@@ -7,6 +7,7 @@ const speech = document.getElementById('speech');
 let interactive = false;
 let pointerId = null;
 let speechTimer;
+let lastPointer = null;
 
 function setInteractive(value) {
     if (value === interactive) return;
@@ -23,7 +24,7 @@ function renderState(snapshot) {
     puppy.update(snapshot);
     document.body.classList.toggle('reduced-motion', snapshot.pet.settings.reducedMotion);
     document.getElementById('desktop-name').textContent = snapshot.pet.name;
-    puppy.setAttribute('aria-label', `${snapshot.pet.name}. Click for head scratches, drag to move, right-click for a menu.`);
+    puppy.setAttribute('aria-label', `${snapshot.pet.name}. Click for ${snapshot.companion.care.pet.label.toLowerCase()}, drag to move, right-click for a menu.`);
     if (snapshot.message) {
         clearTimeout(speechTimer);
         speech.textContent = snapshot.message;
@@ -42,10 +43,15 @@ function finishDrag(phase = 'end') {
 }
 
 document.addEventListener('mousemove', (event) => {
+    lastPointer = { x: event.clientX, y: event.clientY };
     if (pointerId === null) setInteractive(puppy.hitTest(event.clientX, event.clientY));
 });
 document.addEventListener('mouseleave', () => {
+    lastPointer = null;
     if (pointerId === null) setInteractive(false);
+});
+puppy.addEventListener('pet-shape-changed', () => {
+    if (pointerId === null) setInteractive(lastPointer !== null && puppy.hitTest(lastPointer.x, lastPointer.y));
 });
 document.addEventListener('pointerdown', (event) => {
     if (event.button !== 0 || !puppy.hitTest(event.clientX, event.clientY)) return;
@@ -62,10 +68,10 @@ puppy.addEventListener('lostpointercapture', () => finishDrag('cancel'));
 window.addEventListener('blur', () => { finishDrag('cancel'); setInteractive(false); });
 document.addEventListener('contextmenu', (event) => {
     event.preventDefault();
+    if (!puppy.hitTest(event.clientX, event.clientY)) return;
     finishDrag('cancel');
     bridge.menu();
 });
-document.addEventListener('dblclick', () => bridge.window('home'));
 puppy.addEventListener('keydown', (event) => {
     if (event.key === 'Enter' || event.key === ' ') {
         event.preventDefault();

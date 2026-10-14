@@ -1,4 +1,4 @@
-{
+export default {
     "width": 640,
     "height": 560,
     "playPose": "reaching",
@@ -9,4 +9,4 @@
         "sleeping": { "file": "sleeping.png", "shadow": [320, 519, 153, 14] },
         "relaxed": { "file": "relaxed.png", "shadow": [320, 519, 205, 12] }
     }
-}
+};

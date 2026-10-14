@@ -1,6 +1,6 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { PlaySession, TOY_SIZE, toyHitTest } = require('../src/play.cjs');
+const { PlaySession, TOY_SIZE, toyHitTest, mouthPoint } = require('../src/play.cjs');
 const { homeBounds, petSize } = require('../src/geometry.cjs');
 
 const AREA = { x: 0, y: 25, width: 1440, height: 815 };
@@ -185,6 +185,31 @@ test('all games complete with a 30-percent puppy and larger custom sizes', () =>
             assert.equal(bounds.width, petSize(size).width);
             assert.equal(bounds.height, petSize(size).height);
             assert.equal(game.completed, 1);
+        }
+    }
+});
+
+test('photo-cat games align the mouth and stay within negative-origin displays at every size', () => {
+    const area = { x: -1920, y: -400, width: 1920, height: 1080 };
+    assert.equal(mouthPoint(PET, 'cat').y, PET.y + PET.height * .53);
+    assert.equal(mouthPoint(PET, 'dog').y, PET.y + PET.height * .61);
+    for (const size of [20, 30, 43, 100, 150]) {
+        for (const mode of ['fetch', 'ball', 'bubbles']) {
+            const game = new PlaySession(mode, homeBounds(size, area), area, 'cat');
+            assert.equal(game.mouthRatio, .53);
+            throwToy(game, { x: area.x - 10000, y: area.y - 10000 });
+            for (let frame = 0; frame < 3000; frame += 1) {
+                game.step(1 / 60);
+                const bounds = game.getPetBounds();
+                assert.ok(bounds.x >= area.x && bounds.y >= area.y);
+                assert.ok(bounds.x + bounds.width <= area.x + area.width);
+                assert.ok(bounds.y + bounds.height <= area.y + area.height);
+                assert.ok(Math.abs(mouthPoint(bounds, 'cat').x - game.pet.x) <= .5);
+                assert.ok(Math.abs(mouthPoint(bounds, 'cat').y - game.pet.y) <= .5);
+                if (game.phase === 'ready' && game.completed) break;
+            }
+            assert.equal(game.completed, 1);
+            assert.equal(game.phase, 'ready');
         }
     }
 });
