@@ -1,0 +1,66 @@
+{
+    "name": "pawpal-desktop",
+    "version": "1.0.0",
+    "private": true,
+    "description": "A little dog. A little company. An offline desktop companion for Windows and macOS.",
+    "author": "OpenBoardGame",
+    "repository": {
+        "type": "git",
+        "url": "git+https://github.com/CalvinNeo/puppy.git"
+    },
+    "main": "src/main.cjs",
+    "scripts": {
+        "start": "node scripts/launch.cjs .",
+        "test": "node --test tests/*.test.cjs",
+        "test:electron": "node scripts/smoke.cjs",
+        "icons": "node scripts/launch.cjs scripts/create-icons.cjs",
+        "pack": "electron-builder --dir",
+        "dist:mac": "electron-builder --mac",
+        "dist:win": "electron-builder --win",
+        "check": "node scripts/check.cjs"
+    },
+    "engines": {
+        "node": ">=22.12.0"
+    },
+    "devDependencies": {
+        "electron": "44.7.2",
+        "electron-builder": "26.15.3",
+        "playwright": "1.64.0"
+    },
+    "build": {
+        "appId": "com.openboardgame.pawpal",
+        "productName": "Pawpal",
+        "artifactName": "Pawpal-${version}-${os}-${arch}.${ext}",
+        "asar": true,
+        "directories": {
+            "output": "dist"
+        },
+        "files": [
+            "src/**/*",
+            "assets/**/*",
+            "package.json"
+        ],
+        "mac": {
+            "category": "public.app-category.entertainment",
+            "icon": "assets/icon.png",
+            "hardenedRuntime": true,
+            "target": [
+                { "target": "dmg", "arch": ["arm64", "x64"] },
+                { "target": "zip", "arch": ["arm64", "x64"] }
+            ]
+        },
+        "win": {
+            "icon": "assets/icon.png",
+            "target": [
+                { "target": "nsis", "arch": ["x64", "arm64"] }
+            ]
+        },
+        "nsis": {
+            "oneClick": false,
+            "perMachine": false,
+            "allowToChangeInstallationDirectory": true,
+            "createDesktopShortcut": true,
+            "shortcutName": "Pawpal"
+        }
+    }
+}

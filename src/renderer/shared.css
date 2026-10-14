@@ -1,0 +1,6 @@
+html { overflow-x: hidden; }
+* { scrollbar-width: thin; scrollbar-color: #d7decd transparent; }
+@media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
+}
+.reduced-motion *, .reduced-motion *::before, .reduced-motion *::after { animation: none !important; transition: none !important; }

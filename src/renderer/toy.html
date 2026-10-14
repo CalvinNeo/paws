@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">
+    <title>Pawpal toy</title>
+    <link rel="stylesheet" href="toy.css">
+    <script type="module" src="toy.js"></script>
+</head>
+<body>
+    <svg id="toy" viewBox="0 0 100 100" role="button" aria-label="Puppy toy. Drag and release to throw. Right-click to put away.">
+        <defs>
+            <linearGradient id="bone-fur" x2="0.3" y2="1"><stop stop-color="#fff5db"/><stop offset="1" stop-color="#d9b97e"/></linearGradient>
+            <radialGradient id="ball-color" cx=".3" cy=".2"><stop stop-color="#c0d796"/><stop offset="1" stop-color="#739255"/></radialGradient>
+            <radialGradient id="bubble-color" cx=".35" cy=".3"><stop stop-color="#faffff" stop-opacity=".32"/><stop offset=".8" stop-color="#b2d8e8" stop-opacity=".45"/><stop offset="1" stop-color="#f8cbe3" stop-opacity=".85"/></radialGradient>
+        </defs>
+        <g data-kind="bone" class="toy-shape" fill="url(#bone-fur)">
+            <rect data-hit x="22" y="44" width="56" height="12"/>
+            <circle data-hit cx="22" cy="34" r="14"/><circle data-hit cx="22" cy="66" r="14"/>
+            <circle data-hit cx="78" cy="34" r="14"/><circle data-hit cx="78" cy="66" r="14"/>
+            <path class="decoration" d="M15 32q2-6 8-6m48 3q6-5 12 0M38 48h24" fill="none" stroke="#fffef0" stroke-width="3" stroke-linecap="round" opacity=".9"/>
+            <path class="decoration" d="M18 69q4 5 8 0m45 0q5 5 10 0" fill="none" stroke="#c7a66f" stroke-width="1.5" stroke-linecap="round"/>
+        </g>
+        <g data-kind="ball" class="toy-shape" hidden>
+            <circle data-hit cx="50" cy="50" r="28" fill="url(#ball-color)"/>
+            <path class="decoration" d="M25 39q24 2 40 34M40 25q1 16-17 29" fill="none" stroke="#f1f1ce" stroke-width="3.5" stroke-linecap="round"/>
+            <ellipse class="decoration" cx="43" cy="32" rx="7" ry="3" fill="#f8ffde" opacity=".5"/>
+        </g>
+        <g data-kind="bubble" class="toy-shape" hidden>
+            <circle data-hit cx="50" cy="50" r="32" fill="url(#bubble-color)"/>
+            <circle class="decoration" cx="50" cy="50" r="30.5" fill="none" stroke="#e8faff" stroke-width="1.7"/>
+            <path class="decoration" d="M29 43q2-11 13-14m25 36q-6 10-19 8" fill="none" stroke="#fff" stroke-width="3.5" stroke-linecap="round" opacity=".9"/>
+            <circle class="decoration" cx="47" cy="27" r="2" fill="#fff"/>
+        </g>
+    </svg>
+</body>
+</html>
