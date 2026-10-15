@@ -124,6 +124,11 @@ function addActivity(state, type, text, now) {
 function performAction(current, action, now = Date.now()) {
     const state = advanceState(current, now);
     const companion = getCompanion(state.settings.species);
+    if (Object.hasOwn(companion.tricks || {}, action)) {
+        if (state.sleeping) throw new Error('Wake up first.');
+        const trick = companion.tricks[action];
+        return { state, message: trick.message, behavior: trick.behavior };
+    }
     let next = { ...state };
     let message;
     let behavior;
@@ -162,8 +167,6 @@ function performAction(current, action, now = Date.now()) {
 
 function ensureCanPlay(state, mode) {
     if (mode !== undefined) getGame(state.settings.species, mode);
-    if (state.sleeping) throw new Error('Your friend is napping. Wake them up to play.');
-    if (state.energy < getCompanion(state.settings.species).minimumPlayEnergy) throw new Error('A little nap first, then more adventures.');
 }
 
 function rewardPlay(current, mode, now = Date.now()) {

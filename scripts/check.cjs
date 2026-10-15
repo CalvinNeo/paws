@@ -34,3 +34,35 @@ for (const pose of Object.values(catProfile.poses)) {
 console.log(privatePhotos === Object.keys(catProfile.poses).length
     ? `Checked ${privatePhotos} private photo-cat assets (not tracked by Git).`
     : 'Private cat photos are optional and incomplete; this checkout uses the puppy until photos are prepared.');
+const { catAtlasFrame } = require('../src/renderer/cat-animation.mjs');
+let privateAtlases = 0;
+for (const [name, clip] of Object.entries(catProfile.animations || {})) {
+    if (!catAtlasFrame(clip, clip.frames - 1)) throw new Error(`Invalid cat animation: ${name}`);
+    for (const file of clip.files) {
+        const filename = path.join(root, 'assets', 'cat', file);
+        if (!fs.existsSync(filename)) continue;
+        const buffer = fs.readFileSync(filename);
+        if (buffer.toString('ascii', 0, 4) !== 'RIFF' || buffer.toString('ascii', 8, 12) !== 'WEBP') throw new Error(`Invalid WebP atlas: ${filename}`);
+        let dimensions;
+        for (let offset = 12; offset + 8 <= buffer.length;) {
+            const kind = buffer.toString('ascii', offset, offset + 4);
+            const length = buffer.readUInt32LE(offset + 4);
+            if (offset + 8 + length > buffer.length) throw new Error(`Truncated WebP atlas: ${filename}`);
+            if (kind === 'VP8L' && length >= 5 && buffer[offset + 8] === 0x2f) {
+                const packed = buffer.readUInt32LE(offset + 9);
+                dimensions = { width: (packed & 0x3fff) + 1, height: ((packed >>> 14) & 0x3fff) + 1, alpha: Boolean((packed >>> 28) & 1) };
+                break;
+            }
+            if (kind === 'VP8X' && length >= 10) {
+                dimensions = { width: buffer.readUIntLE(offset + 12, 3) + 1, height: buffer.readUIntLE(offset + 15, 3) + 1, alpha: Boolean(buffer[offset + 8] & 0x10) };
+                break;
+            }
+            offset += 8 + length + (length % 2);
+        }
+        if (!dimensions?.alpha || dimensions.width !== clip.frameWidth * clip.columns || dimensions.height !== clip.frameHeight * clip.rows) {
+            throw new Error(`Wrong dimensions or missing transparency in cat atlas: ${filename}`);
+        }
+        privateAtlases += 1;
+    }
+}
+console.log(`Checked ${privateAtlases} private animation atlases; missing clips fall back to available photographs.`);

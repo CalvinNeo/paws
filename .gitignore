@@ -9,3 +9,5 @@ dist/
 .test-artifacts/
 coverage/
 assets/cat/*.png
+assets/cat/motion/
+__pycache__/

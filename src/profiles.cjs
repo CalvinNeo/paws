@@ -22,7 +22,7 @@ function normalizeProfiles(input, now = Date.now()) {
             profiles.pets.cat = normalizeState({
                 ...input,
                 settings: { ...input.settings, roaming: false },
-                activity: Array.isArray(input.activity) ? input.activity.filter((entry) => entry && entry.type !== 'play' && !/puppy|\bpup\b|bone|dog/i.test(entry.text || '')) : undefined,
+                activity: Array.isArray(input.activity) ? input.activity.filter((entry) => entry && entry.type !== 'play' && !/puppy|\bpup\b|bone|dog|belly rub/i.test(entry.text || '')) : undefined,
             }, now, 'cat');
         }
     }
@@ -34,7 +34,10 @@ function normalizeProfiles(input, now = Date.now()) {
 function rememberProfile(profiles, state) {
     const species = state.settings.species;
     getCompanion(species);
-    return { ...profiles, activeSpecies: species, pets: { ...profiles.pets, [species]: state } };
+    const pets = Object.fromEntries(Object.entries(profiles.pets).map(([candidate, pet]) => [candidate,
+        candidate === species ? state : { ...pet, settings: { ...pet.settings, launchOnLogin: state.settings.launchOnLogin } },
+    ]));
+    return { ...profiles, activeSpecies: species, pets };
 }
 
 function switchProfile(profiles, state, species, now = Date.now()) {

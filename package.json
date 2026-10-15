@@ -12,7 +12,10 @@
     "scripts": {
         "start": "node scripts/launch.cjs .",
         "test": "node --test tests/*.test.cjs",
+        "test:cat": "node --test --test-skip-pattern=\"cat motion remains cat-only, and dog games|cat toys follow pet bounds|a proportionate cat throw|starting another session\" tests/cat-actions.test.cjs tests/cat-animation.test.cjs tests/cat-motion.test.cjs tests/photo-hit.test.cjs tests/toy-scale.test.cjs tests/teaser-renderer.test.cjs tests/teaser.test.cjs",
+        "test:cat:electron": "node scripts/smoke-cat.cjs",
         "test:electron": "node scripts/smoke.cjs",
+        "test:pet-clicks": "node scripts/smoke-pet-clicks.cjs",
         "icons": "node scripts/launch.cjs scripts/create-icons.cjs",
         "cat:prepare": "python3 scripts/prepare-cat.py",
         "pack": "electron-builder --dir",

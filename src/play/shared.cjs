@@ -1,4 +1,5 @@
 const { getCompanion, getGame } = require('../companions/index.cjs');
+const { featherHit } = require('../renderer/feather-shape.mjs');
 
 const TOY_SIZE = 96;
 
@@ -14,10 +15,18 @@ function mouthPoint(bounds, species = 'dog') {
     return { x: bounds.x + bounds.width / 2, y: bounds.y + bounds.height * getCompanion(species).playAnchor };
 }
 
+function toySizeForPet(species, bounds) {
+    if (species !== 'cat') return TOY_SIZE;
+    const scale = Math.min(bounds?.width / 300, bounds?.height / 266);
+    return Number.isFinite(scale) && scale > 0 ? clamp(Math.round(TOY_SIZE * scale), 24, 144) : TOY_SIZE;
+}
+
 function toyHitTest(kind, point, size = TOY_SIZE) {
+    if (!Number.isFinite(size) || size <= 0 || !point) return false;
     const horizontal = point.x / size * 100;
     const vertical = point.y / size * 100;
     if (!Number.isFinite(horizontal) || !Number.isFinite(vertical)) return false;
+    if (kind === 'feather') return featherHit({ x: horizontal, y: vertical });
     if (kind === 'ball' || kind === 'yarn' || kind === 'bubble') {
         return Math.hypot(horizontal - 50, vertical - 50) <= (kind === 'bubble' ? 32 : 28);
     }
@@ -33,10 +42,11 @@ class BasePlaySession {
         this.mode = mode;
         this.workArea = { ...workArea };
         this.petSize = { width: petBounds.width, height: petBounds.height };
+        this.toySize = toySizeForPet(species, petBounds);
         this.mouthRatio = getCompanion(species).playAnchor;
-        const insetX = Math.max(petBounds.width / 2, TOY_SIZE / 2) + 4;
-        const insetTop = Math.max(petBounds.height * this.mouthRatio, TOY_SIZE / 2) + 4;
-        const insetBottom = Math.max(petBounds.height * (1 - this.mouthRatio), TOY_SIZE / 2) + 4;
+        const insetX = Math.max(petBounds.width / 2, this.toySize / 2) + 4;
+        const insetTop = Math.max(petBounds.height * this.mouthRatio, this.toySize / 2) + 4;
+        const insetBottom = Math.max(petBounds.height * (1 - this.mouthRatio), this.toySize / 2) + 4;
         this.arena = {
             left: workArea.x + Math.min(insetX, workArea.width / 2),
             right: workArea.x + Math.max(workArea.width - insetX, workArea.width / 2),
@@ -107,7 +117,7 @@ class BasePlaySession {
             this.velocity.x *= 1500 / speed;
             this.velocity.y *= 1500 / speed;
         }
-        if (distance(this.toy, origin) < 28 && this.game.toy !== 'bubble') {
+        if (distance(this.toy, origin) < 28 * this.toySize / TOY_SIZE && this.game.toy !== 'bubble') {
             this.toy = origin;
             this.setPhase('ready');
             return false;
@@ -146,14 +156,21 @@ class BasePlaySession {
         return { x: Math.round(this.pet.x - this.petSize.width / 2), y: Math.round(this.pet.y - this.petSize.height * this.mouthRatio), ...this.petSize };
     }
 
+    getToyBounds() {
+        return {
+            x: Math.round(this.toy.x - this.toySize / 2), y: Math.round(this.toy.y - this.toySize / 2),
+            width: this.toySize, height: this.toySize,
+        };
+    }
+
     snapshot() {
         return {
             mode: this.mode, species: this.species, toy: this.game.toy, label: this.game.label,
             instruction: this.game.instruction, phase: this.phase, completed: this.completed,
-            throws: this.throws, direction: this.direction,
+            throws: this.throws, direction: this.direction, toySize: this.toySize,
             interactive: this.phase === 'ready' || this.phase === 'held',
         };
     }
 }
 
-module.exports = { TOY_SIZE, BasePlaySession, clamp, distance, mouthPoint, toyHitTest };
+module.exports = { TOY_SIZE, BasePlaySession, clamp, distance, mouthPoint, toyHitTest, toySizeForPet };

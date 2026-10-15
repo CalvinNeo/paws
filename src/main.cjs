@@ -19,7 +19,8 @@ if (process.platform === 'win32') app.setAppUserModelId('com.openboardgame.pawpa
 const rendererDirectory = path.join(__dirname, 'renderer');
 const iconPath = path.join(__dirname, '..', 'assets', 'icon.png');
 const dataPath = path.join(app.getPath('userData'), 'companion.json');
-const catAvailable = Object.values(catProfile.poses).every((pose) => fs.existsSync(path.join(__dirname, '..', 'assets', 'cat', pose.file)));
+const catAvailable = Object.values(catProfile.poses).every((pose) => pose.optional || fs.existsSync(path.join(__dirname, '..', 'assets', 'cat', pose.file)));
+const standingAvailable = Boolean(catProfile.poses.standing && fs.existsSync(path.join(__dirname, '..', 'assets', 'cat', catProfile.poses.standing.file)));
 const runtime = { behavior: 'idle', direction: -1, visible: true, warning: null };
 let state;
 let profiles;
@@ -54,6 +55,7 @@ function snapshot() {
         version: app.getVersion(),
         canLaunchOnLogin: app.isPackaged && ['darwin', 'win32'].includes(process.platform),
         catAvailable,
+        standingAvailable,
     };
 }
 
@@ -119,11 +121,13 @@ function performPetAction(action) {
     const now = Date.now();
     if (now - lastActionAt < 450) throw new Error('One little moment…');
     const result = performAction(state, action, now);
+    if (action === 'stand' && !standingAvailable) throw new Error('The standing photo is not installed.');
     desktopPlay?.stop(false);
     state = result.state;
     lastActionAt = now;
     runtime.behavior = result.behavior;
-    behaviorUntil = ['petting', 'eating', 'playing'].includes(result.behavior) ? now + 4200 : 0;
+    if (result.behavior === 'standing') runtime.catActionStartedAt = now;
+    behaviorUntil = ['petting', 'eating', 'playing', 'standing'].includes(result.behavior) ? now + 4200 : 0;
     nextWanderAt = now + 13000;
     scheduleSave();
     updateTray();
@@ -376,7 +380,12 @@ function contextMenuTemplate() {
         { type: 'separator' },
         { id: 'care-pet', label: companion.care.pet.menu, click: () => actionFromMenu('pet') },
         { id: 'care-feed', label: companion.care.feed.menu, enabled: !state.sleeping && state.fullness < 98, click: () => actionFromMenu('feed') },
-        { label: 'Play together', enabled: !state.sleeping && state.energy >= companion.minimumPlayEnergy, submenu: Object.entries(companion.games).map(([mode, game]) => ({
+        ...Object.entries(companion.tricks || {}).map(([action, trick]) => ({
+            id: `${companion.species}-${action}`, label: trick.label,
+            enabled: !state.sleeping && (action !== 'stand' || standingAvailable),
+            click: () => actionFromMenu(action),
+        })),
+        { label: 'Play together', submenu: Object.entries(companion.games).map(([mode, game]) => ({
             id: `game-${mode}`,
             label: game.label,
             click: () => {
@@ -391,8 +400,8 @@ function contextMenuTemplate() {
             { id: 'pet-species-cat', label: 'Your cat · real photos', type: 'radio', checked: state.settings.species === 'cat', enabled: catAvailable, click: () => changePreferences({ species: 'cat' }) },
         ] },
         { label: 'Cat pose', visible: state.settings.species === 'cat', submenu: [
-            ['sitting', 'Sitting'], ['loaf', 'Loaf'], ['relaxed', 'Belly up'],
-        ].map(([catPose, label]) => ({ id: `cat-pose-${catPose}`, label, type: 'radio', checked: state.settings.catPose === catPose, click: () => changePreferences({ catPose }) })) },
+            ['sitting', 'Sitting'], ['loaf', 'Resting'], ['relaxed', 'Belly up'], ['standing', 'Standing'],
+        ].map(([catPose, label]) => ({ id: `cat-pose-${catPose}`, label, type: 'radio', checked: state.settings.catPose === catPose, enabled: catPose !== 'standing' || standingAvailable, click: () => changePreferences({ catPose }) })) },
         { label: `Pet size (${state.settings.size}%)`, submenu: [...new Set([...PET_SIZE_PRESETS, state.settings.size])].sort((first, second) => first - second).map((size) => ({
             id: `pet-size-${size}`,
             label: `${size}%${size === DEFAULT_PET_SIZE ? ' (default)' : ''}`,
@@ -516,6 +525,8 @@ function createDesktopPlay() {
             ensureCanPlay(advanceState(state), mode);
         },
         onStart: () => {
+            state = state.sleeping ? performAction(state, 'wake').state : advanceState(state);
+            scheduleSave();
             endDrag(false);
             runtime.visible = true;
             runtime.carrying = null;
@@ -548,7 +559,7 @@ function createDesktopPlay() {
             rememberPosition();
             updateTray();
             broadcast(reward.message);
-            return state.energy >= getCompanion(state.settings.species).minimumPlayEnergy;
+            return true;
         },
     });
 }
@@ -707,10 +718,7 @@ if (!app.requestSingleInstanceLock()) {
             setBehavior(restBehavior());
             recoverPetPosition();
         });
-        app.on('activate', () => {
-            if (dashboard && !dashboard.isDestroyed() && dashboard.isVisible()) showDashboard();
-            else showPetOnLaunch();
-        });
+        app.on('activate', showPetOnLaunch);
     }).catch((error) => {
         console.error(error);
         dialog.showErrorBox('Pawpal could not start', `${error.message}\n\nYour existing save has not been reset.`);

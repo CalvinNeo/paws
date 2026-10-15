@@ -20,6 +20,9 @@ function renderState(snapshot) {
     if (puppy.getAttribute('species') !== snapshot.pet.settings.species) {
         finishDrag('cancel');
         setInteractive(false);
+        clearTimeout(speechTimer);
+        speech.hidden = true;
+        speech.textContent = '';
     }
     puppy.update(snapshot);
     document.body.classList.toggle('reduced-motion', snapshot.pet.settings.reducedMotion);

@@ -27,7 +27,7 @@ function finishRound(game) {
 
 test('only painted toy shapes hit; padding, gaps and invalid coordinates pass through', () => {
     const size = 100;
-    for (const kind of ['bone', 'ball', 'bubble']) {
+    for (const kind of ['bone', 'ball', 'yarn', 'bubble']) {
         assert.equal(toyHitTest(kind, { x: 50, y: 50 }, size), true);
         for (const point of [{ x: 0, y: 0 }, { x: 50, y: 5 }, { x: 99, y: 99 }, { x: -2, y: 50 }, { x: NaN, y: 50 }]) {
             assert.equal(toyHitTest(kind, point, size), false);
@@ -189,14 +189,14 @@ test('all games complete with a 30-percent puppy and larger custom sizes', () =>
     }
 });
 
-test('photo-cat games align the mouth and stay within negative-origin displays at every size', () => {
+test('photo-cat games align the interaction point and stay inside negative-origin displays at every size', () => {
     const area = { x: -1920, y: -400, width: 1920, height: 1080 };
-    assert.equal(mouthPoint(PET, 'cat').y, PET.y + PET.height * .53);
+    assert.equal(mouthPoint(PET, 'cat').y, PET.y + PET.height * .8955);
     assert.equal(mouthPoint(PET, 'dog').y, PET.y + PET.height * .61);
     for (const size of [20, 30, 43, 100, 150]) {
-        for (const mode of ['fetch', 'ball', 'bubbles']) {
+        for (const mode of ['pounce', 'bubbles']) {
             const game = new PlaySession(mode, homeBounds(size, area), area, 'cat');
-            assert.equal(game.mouthRatio, .53);
+            assert.equal(game.mouthRatio, .8955);
             throwToy(game, { x: area.x - 10000, y: area.y - 10000 });
             for (let frame = 0; frame < 3000; frame += 1) {
                 game.step(1 / 60);
@@ -206,10 +206,74 @@ test('photo-cat games align the mouth and stay within negative-origin displays a
                 assert.ok(bounds.y + bounds.height <= area.y + area.height);
                 assert.ok(Math.abs(mouthPoint(bounds, 'cat').x - game.pet.x) <= .5);
                 assert.ok(Math.abs(mouthPoint(bounds, 'cat').y - game.pet.y) <= .5);
+                assert.equal(game.snapshot().carrying, null);
+                assert.ok(!['returning', 'nudging', 'picking-up'].includes(game.phase));
                 if (game.phase === 'ready' && game.completed) break;
             }
             assert.equal(game.completed, 1);
             assert.equal(game.phase, 'ready');
         }
+    }
+});
+
+test('cat pounces watch, catch and bat the ball without bringing it back', () => {
+    const game = new PlaySession('pounce', PET, AREA, 'cat');
+    const originalToy = { ...game.toy };
+    const originalPet = { ...game.pet };
+    assert.equal(game.snapshot().toy, 'yarn');
+    for (let frame = 0; frame < 100; frame += 1) game.step(1 / 60);
+    assert.deepEqual(game.toy, originalToy);
+    assert.deepEqual(game.pet, originalPet);
+    assert.equal(game.completed, 0);
+    throwToy(game, { x: 480, y: 340 });
+    assert.equal(game.phase, 'watching');
+    for (let frame = 0; frame < 20; frame += 1) game.step(1 / 60);
+    assert.deepEqual(game.pet, originalPet);
+    assert.equal(game.completed, 0);
+    assert.equal(game.snapshot().interactive, false);
+    const phases = finishRound(game);
+    for (const phase of ['watching', 'pouncing', 'batting', 'celebrating', 'ready']) assert.ok(phases.has(phase));
+    for (const phase of ['returning', 'nudging', 'picking-up']) assert.equal(phases.has(phase), false);
+    assert.ok(Math.hypot(game.toy.x - originalToy.x, game.toy.y - originalToy.y) > 50);
+    assert.ok(Math.hypot(game.toy.x - game.pet.x, game.toy.y - game.pet.y) > 30);
+    const battedToy = { ...game.toy };
+    for (let frame = 0; frame < 100; frame += 1) assert.equal(game.step(1 / 60), false);
+    assert.deepEqual(game.toy, battedToy);
+    assert.equal(game.snapshot().carrying, null);
+    throwToy(game, { x: 700, y: 440 }, 3000);
+    finishRound(game);
+    assert.equal(game.completed, 2);
+});
+
+test('cat bubble hunts watch before pouncing and award only completed catches', () => {
+    const game = new PlaySession('bubbles', PET, AREA, 'cat');
+    const initialPet = { ...game.pet };
+    game.beginDrag(game.toy, 1000);
+    assert.equal(game.endDrag(game.toy, 1100), true);
+    assert.equal(game.phase, 'watching');
+    game.step(.05);
+    assert.deepEqual(game.pet, initialPet);
+    assert.equal(game.completed, 0);
+    const phases = finishRound(game);
+    assert.ok(phases.has('pouncing'));
+    assert.ok(phases.has('batting'));
+    assert.ok(phases.has('celebrating'));
+    assert.equal(phases.has('returning'), false);
+    assert.equal(game.snapshot().toy, 'bubble');
+    assert.equal(game.snapshot().carrying, null);
+});
+
+test('cat sessions reject dog games and cancelled drags never begin a hunt', () => {
+    for (const mode of ['fetch', 'ball']) assert.throws(() => new PlaySession(mode, PET, AREA, 'cat'), /not available for your cat/);
+    assert.throws(() => new PlaySession('pounce', PET, AREA, 'dog'), /not available for your dog/);
+    for (const mode of ['pounce', 'bubbles']) {
+        const game = new PlaySession(mode, PET, AREA, 'cat');
+        const original = { ...game.toy };
+        game.beginDrag(original, 1000);
+        assert.equal(game.endDrag({ x: 400, y: 350 }, 1100, true), false);
+        assert.deepEqual(game.toy, original);
+        assert.equal(game.phase, 'ready');
+        assert.equal(game.completed, 0);
+        assert.equal(game.throws, 0);
     }
 });

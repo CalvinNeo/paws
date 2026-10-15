@@ -1,8 +1,18 @@
+import { featherShapes } from './feather-shape.mjs';
+
 const bridge = window.pawpal;
 const toy = document.getElementById('toy');
 let currentState;
 let pointerId = null;
 let inside = false;
+
+const feather = document.querySelector('[data-kind="feather"]');
+for (const { tag, attributes } of featherShapes) {
+    const shape = document.createElementNS('http://www.w3.org/2000/svg', tag);
+    for (const [name, value] of Object.entries(attributes)) shape.setAttribute(name, String(value));
+    shape.setAttribute('data-hit', '');
+    feather.append(shape);
+}
 
 function hitTest(horizontal, vertical) {
     return Boolean(document.elementFromPoint(horizontal, vertical)?.closest('[data-hit]'));
@@ -18,10 +28,11 @@ function renderState(state) {
     if (!state) return;
     currentState = state;
     document.body.classList.toggle('busy', !state.interactive);
-    document.body.classList.toggle('held', state.phase === 'held');
+    document.body.classList.toggle('held', state.dragging || state.phase === 'held');
     document.body.dataset.phase = state.phase;
     document.body.dataset.completed = String(state.completed);
     document.body.dataset.mode = state.mode;
+    document.body.toggleAttribute('data-caught', state.mode === 'teaser' && state.catMotion?.impacted === 1);
     for (const shape of document.querySelectorAll('[data-kind]')) shape.toggleAttribute('hidden', shape.dataset.kind !== state.toy);
     toy.setAttribute('aria-label', `${state.label}. ${state.instruction} Right-click to put toys away.`);
 }

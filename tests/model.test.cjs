@@ -86,7 +86,7 @@ test('naps restore energy and still consume a little food', () => {
     assert.equal(rested.happiness, 86);
     assert.equal(getMood(rested).key, 'sleeping');
     assert.throws(() => performAction(rested, 'feed', NOW + 2 * HOUR), /wake up/);
-    assert.throws(() => ensureCanPlay(rested), /napping/);
+    assert.doesNotThrow(() => ensureCanPlay(rested));
     assert.throws(() => performAction(rested, 'sleep', NOW + 2 * HOUR), /Already/);
     const awake = performAction(rested, 'wake', NOW + 2 * HOUR);
     assert.equal(awake.state.sleeping, false);
@@ -115,10 +115,19 @@ test('treats clamp fullness and refuse overfeeding', () => {
     assert.throws(() => performAction(fed.state, 'feed', NOW), /full tummy/);
 });
 
-test('games require enough energy and old one-click play cannot grant free rewards', () => {
+test('games remain available at any energy or sleep state without granting free rewards', () => {
     const initial = { ...createState(NOW), happiness: 50 };
     assert.doesNotThrow(() => ensureCanPlay(initial));
-    assert.throws(() => ensureCanPlay({ ...initial, energy: 11 }), /nap first/);
+    for (const species of ['dog', 'cat']) {
+        const pet = createState(NOW, species);
+        for (const energy of [0, 1, 7.9, 11, 100]) {
+            for (const sleeping of [false, true]) {
+                for (const mode of Object.keys(pet.playStats)) {
+                    assert.doesNotThrow(() => ensureCanPlay({ ...pet, energy, sleeping }, mode));
+                }
+            }
+        }
+    }
     assert.throws(() => performAction(initial, 'play', NOW), /Choose a desktop game/);
     assert.throws(() => performAction(initial, 'unknown', NOW), /not available/);
 });
@@ -142,7 +151,7 @@ test('completed games grant distinct, bounded rewards and persistent counters', 
     assert.deepEqual(normalizeState(bubbled, NOW).playStats, bubbled.playStats);
     assert.equal(rewardPlay({ ...initial, happiness: 99, energy: 1 }, 'ball', NOW).state.energy, 0);
     assert.equal(rewardPlay({ ...initial, happiness: 99 }, 'ball', NOW).state.happiness, 100);
-    assert.throws(() => rewardPlay(initial, 'unknown', NOW), /Unknown pet game/);
+    assert.throws(() => rewardPlay(initial, 'unknown', NOW), /not available for your dog/);
     assert.throws(() => rewardPlay({ ...initial, sleeping: true }, 'fetch', NOW), /napping/);
 });
 
@@ -198,36 +207,36 @@ test('preferences reject unknown keys and invalid values atomically', () => {
     }
 });
 
-test('cat selection preserves progress and dog appearance and a separate photographic pose', () => {
-    const initial = {
-        ...createState(NOW), name: '豆豆', affection: 42,
-        playStats: { fetch: 9, ball: 2, bubbles: 3 }, position: { x: -800, y: 500 },
-    };
-    const dog = updateSettings(initial, { coat: 'cocoa', accessory: 'collar', size: 43 });
-    const cat = updateSettings(dog, { species: 'cat' });
+test('cats have their own defaults and accept only their own appearance settings', () => {
+    const cat = createState(NOW, 'cat');
     assert.equal(cat.settings.species, 'cat');
     assert.equal(cat.settings.catPose, 'sitting');
-    assert.equal(cat.settings.coat, 'cocoa');
-    assert.equal(cat.settings.accessory, 'collar');
-    assert.equal(cat.settings.size, 43);
-    assert.equal(cat.name, dog.name);
-    assert.equal(cat.affection, dog.affection);
-    assert.deepEqual(cat.playStats, dog.playStats);
-    assert.deepEqual(cat.position, dog.position);
-    assert.deepEqual(cat.activity, dog.activity);
+    assert.equal(cat.settings.coat, undefined);
+    assert.equal(cat.settings.accessory, undefined);
+    assert.equal(cat.settings.roaming, false);
+    assert.equal(cat.settings.size, 30);
+    assert.equal(cat.name, 'My cat');
+    assert.deepEqual(cat.playStats, { pounce: 0, bubbles: 0, teaser: 0 });
     assert.deepEqual(normalizeState(cat, NOW), cat);
-    assert.equal(dog.settings.species, 'dog');
-    const relaxedCat = updateSettings(cat, { catPose: 'loaf' });
-    const returnedDog = updateSettings(relaxedCat, { species: 'dog' });
-    assert.equal(returnedDog.settings.accessory, 'collar');
-    assert.equal(returnedDog.settings.catPose, 'loaf');
+    const loaf = updateSettings(cat, { catPose: 'loaf', size: 43 });
+    assert.equal(loaf.settings.catPose, 'loaf');
+    assert.equal(loaf.settings.size, 43);
+    assert.equal(cat.settings.catPose, 'sitting');
+    for (const patch of [{ coat: 'cocoa' }, { accessory: 'collar' }, { species: 'dog' }, { catPose: 'unknown' }]) {
+        assert.throws(() => updateSettings(cat, patch), /Invalid preference/);
+    }
+    assert.throws(() => updateSettings(createState(NOW), { species: 'cat' }), /Invalid preference/);
+    const cleaned = normalizeState({ ...cat, settings: { ...cat.settings, coat: 'cloud', accessory: 'collar' }, playStats: { fetch: 8, ball: 7, pounce: 2, bubbles: 3 } }, NOW);
+    assert.equal(cleaned.settings.coat, undefined);
+    assert.equal(cleaned.settings.accessory, undefined);
+    assert.deepEqual(cleaned.playStats, { pounce: 2, bubbles: 3, teaser: 0 });
 });
 
 test('old saves stay dogs and invalid companion preferences are rejected', () => {
     const legacy = { settings: { coat: 'cloud', accessory: 'collar', size: 'medium' } };
     const restored = normalizeState(legacy, NOW);
     assert.equal(restored.settings.species, 'dog');
-    assert.equal(restored.settings.catPose, 'sitting');
+    assert.equal(restored.settings.catPose, undefined);
     assert.equal(restored.settings.accessory, 'collar');
     assert.equal(restored.settings.size, 30);
     assert.equal(normalizeState({ settings: { species: 'fox', catPose: true } }, NOW).settings.species, 'dog');
@@ -238,27 +247,63 @@ test('old saves stay dogs and invalid companion preferences are rejected', () =>
     }
 });
 
-test('cats relax when petted, nap, eat, and earn the same game rewards', () => {
-    const cat = updateSettings(createState(NOW), { species: 'cat' });
+test('cats receive chin scratches and cat snacks without dog-specific care', () => {
+    const cat = createState(NOW, 'cat');
     const petted = performAction(cat, 'pet', NOW);
     assert.equal(petted.behavior, 'petting');
     assert.match(petted.message, /Prrr/);
-    assert.match(petted.state.activity[0].text, /belly rub/);
+    assert.match(petted.state.activity[0].text, /chin scratch/);
+    assert.doesNotMatch(petted.state.activity[0].text, /belly|puppy|bone/);
+    assert.equal(petted.state.happiness, 93);
     assert.equal(petted.state.affection, 1);
-    assert.equal(performAction(cat, 'feed', NOW).behavior, 'eating');
+    const fed = performAction({ ...cat, fullness: 50 }, 'feed', NOW);
+    assert.equal(fed.behavior, 'eating');
+    assert.equal(fed.state.fullness, 68);
+    assert.equal(fed.state.energy, 78);
+    assert.equal(fed.state.affection, 1);
+    assert.match(fed.state.activity[0].text, /cat snack.*bowl/);
     const sleeping = performAction(cat, 'sleep', NOW);
     assert.equal(sleeping.behavior, 'sleeping');
     assert.equal(performAction(sleeping.state, 'pet', NOW).behavior, 'sleeping');
-    assert.throws(() => ensureCanPlay(sleeping.state), /napping/);
-    const switched = updateSettings(sleeping.state, { species: 'dog' });
-    assert.equal(switched.sleeping, true);
-    for (const mode of ['fetch', 'ball', 'bubbles']) {
+    assert.doesNotThrow(() => ensureCanPlay(sleeping.state));
+    assert.throws(() => performAction(sleeping.state, 'feed', NOW), /wake up/);
+});
+
+test('cat play has independent rewards and allowed modes without an energy gate', () => {
+    const cat = { ...createState(NOW, 'cat'), happiness: 50 };
+    assert.doesNotThrow(() => ensureCanPlay({ ...cat, energy: 8 }, 'pounce'));
+    assert.doesNotThrow(() => ensureCanPlay({ ...cat, energy: 0 }, 'pounce'));
+    for (const mode of ['fetch', 'ball', 'unknown']) {
+        assert.throws(() => ensureCanPlay(cat, mode), /not available for your cat/);
+        assert.throws(() => rewardPlay(cat, mode, NOW), /not available for your cat/);
+    }
+    for (const mode of ['pounce', 'bubbles', 'teaser']) {
         const played = rewardPlay(cat, mode, NOW);
         assert.equal(played.state.settings.species, 'cat');
         assert.equal(played.state.playStats[mode], 1);
-        assert.equal(played.state.energy, rewardPlay(createState(NOW), mode, NOW).state.energy);
-        assert.doesNotMatch(played.state.activity[0].text, /puppy/);
+        assert.equal(played.state.energy, mode === 'pounce' ? 73 : 74);
+        assert.equal(played.state.happiness, { pounce: 57, bubbles: 55, teaser: 56 }[mode]);
+        assert.equal(played.state.affection, 1);
+        assert.doesNotMatch(played.state.activity[0].text, /puppy|bone|fetch|return/);
     }
+    assert.deepEqual(cat.playStats, { pounce: 0, bubbles: 0, teaser: 0 });
+    assert.throws(() => rewardPlay(createState(NOW), 'pounce', NOW), /not available for your dog/);
+});
+
+test('cats have independent awake and sleeping needs', () => {
+    const cat = createState(NOW, 'cat');
+    const awake = advanceState(cat, NOW + HOUR);
+    assert.equal(awake.fullness, 79);
+    assert.equal(awake.happiness, 86);
+    assert.equal(awake.energy, 73);
+    const sleeping = advanceState({ ...cat, sleeping: true }, NOW + HOUR);
+    assert.equal(sleeping.fullness, 80.5);
+    assert.equal(sleeping.happiness, 87.5);
+    assert.equal(sleeping.energy, 94);
+    const absent = advanceState(cat, NOW + 24 * HOUR);
+    assert.equal(absent.fullness, 58);
+    assert.equal(absent.happiness, 72);
+    assert.equal(absent.energy, 52);
 });
 
 test('renaming trims whitespace, limits Unicode code points, and stores plain text', () => {

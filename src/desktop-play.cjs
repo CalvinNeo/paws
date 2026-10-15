@@ -1,6 +1,6 @@
 const path = require('node:path');
 const { BrowserWindow, Menu, screen } = require('electron');
-const { PlaySession, TOY_SIZE, toyHitTest } = require('./play.cjs');
+const { PlaySession, toyHitTest } = require('./play.cjs');
 const { getGame } = require('./companions/index.cjs');
 const { clampBounds } = require('./geometry.cjs');
 
@@ -41,10 +41,7 @@ class DesktopPlay {
         this.ready = false;
         this.ignoringMouse = true;
         this.window = new BrowserWindow({
-            x: Math.round(this.session.toy.x - TOY_SIZE / 2),
-            y: Math.round(this.session.toy.y - TOY_SIZE / 2),
-            width: TOY_SIZE,
-            height: TOY_SIZE,
+            ...this.session.getToyBounds(),
             show: false,
             title: 'Pawpal toy',
             frame: false,
@@ -110,7 +107,7 @@ class DesktopPlay {
     updateHitTest(cursor) {
         if (!this.session || this.session.drag) return;
         const bounds = this.window.getBounds();
-        const inside = toyHitTest(this.session.game.toy, { x: cursor.x - bounds.x, y: cursor.y - bounds.y });
+        const inside = toyHitTest(this.session.game.toy, { x: cursor.x - bounds.x, y: cursor.y - bounds.y }, bounds.width);
         this.pointer(inside);
     }
 
@@ -120,7 +117,7 @@ class DesktopPlay {
         const now = performance.now();
         if (phase === 'start') {
             const bounds = this.window.getBounds();
-            if (!point || !toyHitTest(this.session.game.toy, point)) return;
+            if (!point || !toyHitTest(this.session.game.toy, point, bounds.width)) return;
             this.options.canPlay(this.session.mode);
             if (this.session.beginDrag({ x: bounds.x + point.x, y: bounds.y + point.y }, now)) this.setPassthrough(false);
         } else if (phase === 'end' || phase === 'cancel') {
@@ -162,8 +159,7 @@ class DesktopPlay {
         const petBounds = this.session.getPetBounds();
         const previous = petWindow.getBounds();
         if (previous.x !== petBounds.x || previous.y !== petBounds.y) petWindow.setPosition(petBounds.x, petBounds.y, false);
-        const toyX = Math.round(this.session.toy.x - TOY_SIZE / 2);
-        const toyY = Math.round(this.session.toy.y - TOY_SIZE / 2);
+        const { x: toyX, y: toyY } = this.session.getToyBounds();
         const previousToy = this.window.getBounds();
         if (previousToy.x !== toyX || previousToy.y !== toyY) this.window.setPosition(toyX, toyY, false);
         const visible = this.session.snapshot().toyVisible;

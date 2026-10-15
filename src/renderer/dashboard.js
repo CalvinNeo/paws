@@ -13,7 +13,7 @@ const activityEmoji = { adopt: '🐾', pet: '🤍', feed: '🦴', play: '🎾', 
 const genericExplanations = {
     accessory: 'Choose a terracotta Bandana, a sage Collar, or Au naturel for your puppy. Your cat keeps their real photographic appearance.',
     species: 'Choose Puppy (🐶) or Your cat (🐱). The cat uses private, background-free photographs rather than a cartoon. Only one companion appears at a time. Each has their own name, care, games, progress, size and position. Switching restores that companion and safely puts toys away.',
-    catPose: 'Choose a real-photo resting pose: Sitting, Loaf, or Belly up. Napping shows a curled-up photograph; play uses a reaching pose. These are photographs, not a rotating 3D model or a generated walking animation.',
+    catPose: 'Choose Sitting, Resting, Belly up, or Standing. Standing keeps your cat’s standing photo on the desk. Stand up adds a small rise and settle animated from that photo. Sitting includes quiet recorded movements; naps use a curled-up photograph.',
     size: 'Reset your companion to 30% of the original width and height. They stay on the current screen and keep their paws near the same spot.',
 };
 let currentState;
@@ -84,22 +84,26 @@ function renderActivity(pet) {
 
 function updateCareButtons() {
     if (!currentState) return;
-    const { pet, companion } = currentState;
+    const { pet, companion, standingAvailable } = currentState;
     for (const button of document.querySelectorAll('[data-action]')) {
         const action = button.dataset.action;
         button.disabled = pendingAction
             || (action === 'feed' && (pet.sleeping || pet.fullness >= 98))
-            || (action === 'play' && (pet.sleeping || pet.energy < companion.minimumPlayEnergy));
+            || (Object.hasOwn(companion.tricks || {}, action) && pet.sleeping)
+            || (action === 'stand' && !standingAvailable);
         button.setAttribute('aria-busy', String(pendingAction));
     }
     document.querySelectorAll('[data-play-mode]').forEach((button) => {
-        button.disabled = pendingAction || pet.sleeping || pet.energy < companion.minimumPlayEnergy;
+        button.disabled = pendingAction;
     });
 }
 
 function renderCompanion(companion) {
     const isCat = companion.species === 'cat';
-    for (const [action, care] of Object.entries(companion.care)) {
+    for (const button of document.querySelectorAll('[data-trick]')) {
+        button.hidden = !Object.hasOwn(companion.tricks || {}, button.dataset.action);
+    }
+    for (const [action, care] of Object.entries({ ...companion.care, ...companion.tricks })) {
         const button = document.querySelector(`.care-button[data-action="${action}"]`);
         button.dataset.explain = care.explanation;
         button.querySelector('.care-emoji').textContent = care.emoji;
@@ -120,7 +124,7 @@ function renderCompanion(companion) {
     element('help-hello').textContent = `Click your pet for ${companion.care.pet.label} (${companion.care.pet.emoji}). Double-clicks and repeated clicks also just pet them, without opening their home. Drag to move them. To open their home, right-click and choose Open …'s home, or use the system tray.`;
     element('help-care').textContent = `${companion.care.feed.label} (${companion.care.feed.emoji}) fills their tummy. Playtime (${isCat ? '🧶' : '🎾'}) brings joy but uses energy. Take a nap (🌙) to recharge; Wake up (☀️) when it's time.`;
     element('help-companion').textContent = isCat
-        ? 'Your cat rests in place by default. Choose Sitting, Loaf or Belly up in Wardrobe; petting keeps their chosen pose. Play uses a reaching photo and naps use a curled-up photo. These are real photographic poses, not a generated walking cycle or a rotating 3D model. Switching companions restores each pet’s own name, care, games, progress, size and position.'
+        ? 'Your cat rests in place by default. Choose Sitting, Resting, Belly up or Standing in Wardrobe. Stand up adds a small rise and settle animated from a standing photo, then returns to the chosen pose. Sitting and play include short recorded movements; naps use a curled-up photo. Each companion keeps their own name, care, games, progress, size and position.'
         : 'Your puppy takes short walks, stays within the screen, and pauses when you hover. Choose Puppy (🐶) or Your cat (🐱) in Wardrobe or the right-click menu → Your companion. Each has their own name, care, games, progress, size and position. Your puppy’s coat and accessories stay with your puppy.';
     element('help-games').textContent = companion.playHelp;
     element('name-input').placeholder = companion.defaultName;
@@ -151,6 +155,7 @@ function renderState(snapshot) {
         element('scene-message').textContent = pet.sleeping ? companion.sleepMessage : companion.welcome;
         element('play-dialog').close();
         element('explanation-dialog').close();
+        element('rename-dialog').close();
         renderCompanion(companion);
     }
     const isCat = pet.settings.species === 'cat';
@@ -164,6 +169,9 @@ function renderState(snapshot) {
     element('appearance-description').textContent = isCat ? 'Your real cat. Right here.' : 'Same little soul. A fresh little look.';
     document.querySelectorAll('[data-setting="species"][data-value="cat"]').forEach((button) => {
         button.disabled = !snapshot.catAvailable;
+    });
+    document.querySelectorAll('[data-setting="catPose"][data-value="standing"]').forEach((button) => {
+        button.disabled = !snapshot.standingAvailable;
     });
     element('pet-name').textContent = pet.name;
     element('pet-name').title = pet.name;
