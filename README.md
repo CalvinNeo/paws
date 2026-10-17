@@ -39,7 +39,9 @@ Games have observation, crouching, acceleration, a short pounce, a visible paw r
 
 Click handling samples the current rendered frame's alpha mask. Transparent pixels, gaps, letterboxing and the ground shadow pass clicks through, including during animation and after changing poses or size. Cat menus offer only the cat games below; unsupported dog games are also rejected by the application, not merely hidden in the UI.
 
-Photo and video processing is entirely local. Original media remain untouched. Prepared PNGs and `assets/cat/motion/` are **ignored by Git**. A fresh clone without the photographs runs the puppy and explains why cat selection is disabled; existing cat saves fall back to the puppy without losing progress. Missing motion clips fall back to available photographs. To regenerate this owner's curated assets on macOS 14+ with Swift and Python 3.9+:
+The owner's permission covers publishing the prepared cat assets: **six pose PNGs and fourteen animation atlases are included in this repository** (about 27 MiB). After `npm ci` and `npm start`, select **Your cat** from the companion menu to use the cat immediately on Windows or macOS. No separate media download, Git LFS, Python or Apple Vision setup is required. Original photos, full videos and processing intermediates remain local.
+
+Regeneration is optional and requires the owner's original files, which are not included, plus macOS 14+, Swift and Python 3.9+:
 
 ```sh
 python3 -m venv .test-artifacts/cat-tools
@@ -91,7 +93,7 @@ npm run test:cat:electron
 
 The cat commands use an isolated cat profile and avoid puppy test flows. The complete suites remain available for work on both companions, but are not part of routine cat verification.
 
-Unit tests cover animation timing and pauses, atlas pages, alpha masks, paw anchors, acceleration, contact-only rewards, independent profiles and offline care, migration backups, allowed games, flick physics, cancellation and display boundaries. Electron smoke tests use an isolated temporary profile and a deterministic cursor **only inside the test process**; they exercise real windows, shape hit-testing, non-focusable flags, menus and IPC validation, separate profiles, actual idle and paw frames, reduced-motion freezing, and stopping playback on detach. Cat rendering/game checks run when the private assets are installed. Screenshots are written under `.test-artifacts/`. A Windows or macOS machine is still needed to verify native click-through behavior on that operating system; DOM-injected test clicks alone cannot prove OS-level input routing.
+Unit tests cover animation timing and pauses, atlas pages, alpha masks, paw anchors, acceleration, contact-only rewards, independent profiles and offline care, migration backups, allowed games, flick physics, cancellation and display boundaries. Electron smoke tests use an isolated temporary profile and a deterministic cursor **only inside the test process**; they exercise real windows, shape hit-testing, non-focusable flags, menus and IPC validation, separate profiles, actual idle and paw frames, reduced-motion freezing, and stopping playback on detach. Cat checks use the bundled assets, and `npm run check` fails if any referenced pose or animation page is missing. Screenshots are written under `.test-artifacts/`. A Windows or macOS machine is still needed to verify native click-through behavior on that operating system; DOM-injected test clicks alone cannot prove OS-level input routing.
 
 ## Packaging
 
@@ -100,4 +102,4 @@ npm run dist:mac
 npm run dist:win
 ```
 
-Use the matching operating system to build and verify its installers. Code signing/notarization certificates are not bundled. The original puppy SVG and generated PNG icons are included; regenerate icons with `npm run icons` after editing the SVGs. Locally prepared cat PNGs and motion atlases are included in local installers; do not publish those installers unless you intend to share the private media.
+Use the matching operating system to build and verify its installers. Code signing/notarization certificates are not bundled. The original puppy SVG and generated PNG icons are included; regenerate icons with `npm run icons` after editing the SVGs. The prepared cat PNGs and motion atlases are bundled in installers with the owner's permission; original source photos and videos are not included.

@@ -1,10 +1,10 @@
-# Private photographic cat assets
+# Photographic cat assets
 
-The cat uses the owner's actual photographs and short video sequences. Source media and generated PNG/WebP assets stay local and are excluded from Git. No image service or API key is used. `poses.mjs` contains only playback metadata.
+The cat uses the owner's actual photographs and short video sequences. With the owner's permission, the six prepared pose PNGs and fourteen animation WebP atlases referenced by `poses.mjs` are included in Git. A normal clone includes everything needed to run the cat offline on Windows and macOS. No image service, API key, Python or Apple Vision is needed for playback. Original photos and videos, older cutouts and processing intermediates remain local and are not included.
 
-## Prepare
+## Optional regeneration
 
-Preparation needs macOS 14+, Swift, and Python 3.9+. Playback needs neither Python nor Vision and works offline in Electron on Windows and macOS.
+Regeneration is only needed when replacing assets and requires the owner's original source files, macOS 14+, Swift, and Python 3.9+. Those original files are not part of the repository. Skip this section to use the bundled cat.
 
 ```sh
 python3 -m venv .test-artifacts/cat-tools
@@ -71,4 +71,4 @@ The renderer keeps a bounded shared image cache, draws an alpha-only hit mask fo
 
 ## Packaging
 
-Locally built installers include the prepared PNGs and `motion/` directory. For another checkout, privately copy those assets along with matching `poses.mjs`, or regenerate them locally. Do not publish installers containing these private derivatives unless the owner intends to share the media.
+Installers include the bundled pose PNGs and `motion/` atlases with matching `poses.mjs`. New checkouts obtain these assets with ordinary Git; Git LFS and a separate media download are not required. `.gitignore` allows only the reviewed runtime filenames, so older cutouts and additional processing outputs stay excluded. Run `npm run check` to verify all referenced images and atlas pages before packaging.

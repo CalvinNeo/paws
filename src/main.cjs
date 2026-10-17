@@ -746,7 +746,7 @@ if (!app.requestSingleInstanceLock()) {
             const fallback = switchProfile(profiles, state, 'dog');
             profiles = fallback.profiles;
             state = fallback.state;
-            runtime.warning = 'Your private cat photos are missing. Showing Puppy instead; your cat’s separate profile is preserved.';
+            runtime.warning = 'Bundled cat photos are missing. Reinstall Pawpal to restore them. Showing Puppy instead; your cat’s separate profile is preserved.';
         }
         runtime.behavior = restBehavior();
         if (app.isPackaged) state.settings.launchOnLogin = app.getLoginItemSettings().openAtLogin;

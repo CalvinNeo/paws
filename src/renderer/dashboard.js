@@ -12,7 +12,7 @@ const viewTitles = {
 const activityEmoji = { adopt: '🐾', pet: '🤍', feed: '🦴', play: '🎾', sleep: '🌙', wake: '☀️', rename: '✏️' };
 const genericExplanations = {
     accessory: 'Choose a terracotta Bandana, a sage Collar, or Au naturel for your puppy. Your cat keeps their real photographic appearance.',
-    species: 'Choose Puppy (🐶) or Your cat (🐱). The cat uses private, background-free photographs rather than a cartoon. Only one companion appears at a time. Each has their own name, care, games, progress, size and position. Switching restores that companion and safely puts toys away.',
+    species: 'Choose Puppy (🐶) or Your cat (🐱). The cat uses photographs and recorded movements shared by their owner and included with Pawpal. Only one companion appears at a time. Each has their own name, care, games, progress, size and position. Switching restores that companion and safely puts toys away.',
     catPose: 'Choose Sitting, Resting, Belly up, or Standing. Standing keeps your cat’s standing photo on the desk. Stand up adds a small rise and settle animated from that photo. Sitting includes quiet recorded movements; naps use a curled-up photograph.',
     size: 'Reset your companion to 30% of the original width and height. They stay on the current screen and keep their paws near the same spot.',
 };

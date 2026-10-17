@@ -487,7 +487,7 @@ function assertCatMask(mask) {
 }
 
 async function testCatAnimation(petPage) {
-    assert.ok(catProfile.animations?.idle?.frames > 1, 'private cat assets include a multi-frame idle atlas');
+    assert.ok(catProfile.animations?.idle?.frames > 1, 'bundled cat assets include a multi-frame idle atlas');
     const originalMotion = (await petPage.evaluate(() => window.pawpal.getState())).data.pet.settings.reducedMotion;
     await setCatReducedMotion(petPage, false);
     try {
@@ -915,7 +915,7 @@ async function testMissingCatPhotos() {
         assert.equal(snapshot.pet.name, saved.pets.dog.name);
         assert.equal(snapshot.pet.affection, saved.pets.dog.affection);
         assert.deepEqual(snapshot.pet.playStats, saved.pets.dog.playStats);
-        assert.match(snapshot.runtime.warning, /private cat photos are missing/);
+        assert.match(snapshot.runtime.warning, /Bundled cat photos are missing/);
         const response = await petPage.evaluate(() => window.pawpal.preferences({ species: 'cat' }));
         assert.equal(response.ok, false);
         assert.match(response.error, /Cat photos are not installed/);
@@ -1069,7 +1069,7 @@ async function testMissingCatPhotos() {
         console.log('✓ SVG-aware puppy hit testing and transparent corners');
 
         if (hasPrivateCatPhotos) await testCatCompanion(dashboard, petPage);
-        else console.log('○ Private cat photos are absent; only the puppy and missing-asset fallback are tested.');
+        else console.log('○ Bundled cat photos are absent; only the puppy and missing-asset fallback are tested.');
 
         await application.evaluate(({ app }) => { setTimeout(() => app.quit(), 50); });
         await application.close();

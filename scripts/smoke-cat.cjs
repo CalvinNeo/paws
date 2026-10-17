@@ -25,7 +25,7 @@ function checkAssets() {
         files.push(...clip.files);
     }
     if (catProfile.animations?.eat) files.push(...catProfile.animations.eat.files);
-    for (const file of files) assert.ok(fs.existsSync(path.join(root, 'assets/cat', file)), `Missing private cat asset: ${file}`);
+    for (const file of files) assert.ok(fs.existsSync(path.join(root, 'assets/cat', file)), `Missing bundled cat asset: ${file}`);
 }
 
 async function state() {
