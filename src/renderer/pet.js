@@ -56,6 +56,9 @@ document.addEventListener('mouseleave', () => {
 puppy.addEventListener('pet-shape-changed', () => {
     if (pointerId === null) setInteractive(lastPointer !== null && puppy.hitTest(lastPointer.x, lastPointer.y));
 });
+puppy.addEventListener('cat-action-playback', (event) => {
+    bridge.catActionPlayback(event.detail);
+});
 document.addEventListener('pointerdown', (event) => {
     if (event.button !== 0 || !puppy.hitTest(event.clientX, event.clientY)) return;
     event.preventDefault();

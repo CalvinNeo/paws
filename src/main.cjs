@@ -2,7 +2,7 @@ const path = require('node:path');
 const fs = require('node:fs');
 const { pathToFileURL } = require('node:url');
 const { app, BrowserWindow, ipcMain, Menu, Tray, nativeImage, screen, powerMonitor, dialog } = require('electron');
-const { advanceState, performAction, updateSettings, renamePet, getMood, getFriendship, ensureCanPlay, rewardPlay } = require('./model.cjs');
+const { advanceState, performAction, updateSettings, renamePet, getMood, getFriendship, ensureCanPlay, rewardPlay, resetPetData } = require('./model.cjs');
 const { DEFAULT_PET_SIZE, PET_SIZE_PRESETS, petSize, clampBounds, homeBounds, walkStep } = require('./geometry.cjs');
 const { loadState, saveState } = require('./store.cjs');
 const { DesktopPlay } = require('./desktop-play.cjs');
@@ -21,6 +21,12 @@ const iconPath = path.join(__dirname, '..', 'assets', 'icon.png');
 const dataPath = path.join(app.getPath('userData'), 'companion.json');
 const catAvailable = Object.values(catProfile.poses).every((pose) => pose.optional || fs.existsSync(path.join(__dirname, '..', 'assets', 'cat', pose.file)));
 const standingAvailable = Boolean(catProfile.poses.standing && fs.existsSync(path.join(__dirname, '..', 'assets', 'cat', catProfile.poses.standing.file)));
+const catActionClips = {
+    grooming: catTrackedClip('groom', 'grooming'),
+    eating: catTrackedClip('eat', 'eating'),
+};
+const groomingAvailable = Boolean(catActionClips.grooming);
+const CAT_ACTION_LOAD_TIMEOUT_MS = 10000;
 const runtime = { behavior: 'idle', direction: -1, visible: true, warning: null };
 let state;
 let profiles;
@@ -34,6 +40,7 @@ let hovering = false;
 let menuOpen = false;
 let ignoringMouse = true;
 let behaviorUntil = 0;
+let catActionPlayback = null;
 let nextWanderAt = Date.now() + 12000;
 let lastTickAt = Date.now();
 let lastActionAt = 0;
@@ -42,6 +49,17 @@ let careTimer;
 let saveTimer;
 let windowReady = false;
 let desktopPlay;
+
+function catTrackedClip(action, behavior) {
+    const clip = catProfile.animations?.[action];
+    if (!clip || !['frames', 'frameWidth', 'frameHeight', 'columns', 'rows'].every((key) => Number.isSafeInteger(clip[key]) && clip[key] > 0)
+        || !Number.isFinite(clip.fps) || clip.fps <= 0
+        || !Array.isArray(clip.files) || !clip.files.length
+        || clip.frames > clip.columns * clip.rows * clip.files.length
+        || !clip.files.every((file) => typeof file === 'string' && file.length && fs.existsSync(path.join(__dirname, '..', 'assets', 'cat', file)))) return null;
+    const frames = clip.pingPong && clip.frames > 1 ? (clip.frames - 1) * 2 : clip.frames;
+    return { action, behavior, duration: Math.ceil(frames / clip.fps * 1000) + 300 };
+}
 
 function snapshot() {
     return {
@@ -56,6 +74,7 @@ function snapshot() {
         canLaunchOnLogin: app.isPackaged && ['darwin', 'win32'].includes(process.platform),
         catAvailable,
         standingAvailable,
+        groomingAvailable,
     };
 }
 
@@ -100,6 +119,7 @@ function rememberPosition() {
 
 function setBehavior(behavior, duration = 0) {
     runtime.behavior = behavior;
+    catActionPlayback = null;
     behaviorUntil = duration ? Date.now() + duration : 0;
     broadcast();
 }
@@ -122,17 +142,43 @@ function performPetAction(action) {
     if (now - lastActionAt < 450) throw new Error('One little moment…');
     const result = performAction(state, action, now);
     if (action === 'stand' && !standingAvailable) throw new Error('The standing photo is not installed.');
+    if (action === 'groom' && !groomingAvailable) throw new Error('The grooming animation is not installed.');
     desktopPlay?.stop(false);
     state = result.state;
     lastActionAt = now;
     runtime.behavior = result.behavior;
-    if (result.behavior === 'standing') runtime.catActionStartedAt = now;
-    behaviorUntil = ['petting', 'eating', 'playing', 'standing'].includes(result.behavior) ? now + 4200 : 0;
+    const trackedClip = state.settings.species === 'cat' ? catActionClips[result.behavior] : null;
+    if (state.settings.species === 'cat' && ['standing', 'grooming', 'eating'].includes(result.behavior)) runtime.catActionStartedAt = now;
+    catActionPlayback = trackedClip
+        ? { ...trackedClip, startedAt: now, elapsedMs: 0, phase: 'pending', expiresAt: now + trackedClip.duration + CAT_ACTION_LOAD_TIMEOUT_MS } : null;
+    behaviorUntil = catActionPlayback ? now + (state.settings.reducedMotion ? trackedClip.duration : CAT_ACTION_LOAD_TIMEOUT_MS)
+        : ['petting', 'eating', 'playing', 'standing'].includes(result.behavior) ? now + 4200 : 0;
     nextWanderAt = now + 13000;
     scheduleSave();
     updateTray();
     broadcast(result.message);
     return result.message;
+}
+
+function updateCatActionPlayback(payload) {
+    if (!catActionPlayback || state.settings.species !== 'cat' || runtime.behavior !== catActionPlayback.behavior || desktopPlay?.active
+        || !payload || payload.startedAt !== catActionPlayback.startedAt || payload.startedAt !== runtime.catActionStartedAt
+        || !['loading', 'playing', 'static', 'failed'].includes(payload.phase)
+        || !Number.isFinite(payload.elapsedMs) || payload.elapsedMs < 0 || payload.elapsedMs > catActionPlayback.duration) return;
+    const now = Date.now();
+    if (payload.phase === 'failed' || now >= behaviorUntil) {
+        setBehavior(restBehavior());
+        return;
+    }
+    const phase = state.settings.reducedMotion ? 'static' : payload.phase;
+    if (payload.elapsedMs < catActionPlayback.elapsedMs
+        || (phase === catActionPlayback.phase && payload.elapsedMs === catActionPlayback.elapsedMs)) return;
+    catActionPlayback.phase = phase;
+    catActionPlayback.elapsedMs = payload.elapsedMs;
+    behaviorUntil = phase === 'static' ? catActionPlayback.startedAt + catActionPlayback.duration
+        : Math.min(catActionPlayback.expiresAt, now + (phase === 'loading'
+            ? CAT_ACTION_LOAD_TIMEOUT_MS : catActionPlayback.duration - payload.elapsedMs));
+    if (now >= behaviorUntil) setBehavior(restBehavior());
 }
 
 function actionFromMenu(action) {
@@ -357,6 +403,7 @@ function changePreferences(patch) {
         runtime.behavior = restBehavior();
         runtime.carrying = null;
         behaviorUntil = 0;
+        catActionPlayback = null;
         lastActionAt = 0;
         nextWanderAt = Date.now() + 12000;
         setMousePassthrough(true);
@@ -382,7 +429,7 @@ function contextMenuTemplate() {
         { id: 'care-feed', label: companion.care.feed.menu, enabled: !state.sleeping && state.fullness < 98, click: () => actionFromMenu('feed') },
         ...Object.entries(companion.tricks || {}).map(([action, trick]) => ({
             id: `${companion.species}-${action}`, label: trick.label,
-            enabled: !state.sleeping && (action !== 'stand' || standingAvailable),
+            enabled: !state.sleeping && (action !== 'stand' || standingAvailable) && (action !== 'groom' || groomingAvailable),
             click: () => actionFromMenu(action),
         })),
         { label: 'Play together', submenu: Object.entries(companion.games).map(([mode, game]) => ({
@@ -461,6 +508,7 @@ function tickMotion() {
     const now = Date.now();
     const elapsed = (now - lastTickAt) / 1000;
     lastTickAt = now;
+    if (catActionPlayback && behaviorUntil && now >= behaviorUntil) setBehavior(restBehavior());
     if (suspended || !windowReady || !runtime.visible || petWindow.isDestroyed() || desktopPlay?.active) return;
     if (dragging) {
         const cursor = screen.getCursorScreenPoint();
@@ -532,6 +580,7 @@ function createDesktopPlay() {
             runtime.carrying = null;
             hovering = false;
             behaviorUntil = 0;
+            catActionPlayback = null;
             setMousePassthrough(true);
             petWindow.setAlwaysOnTop(true, 'floating');
             petWindow.showInactive();
@@ -546,6 +595,7 @@ function createDesktopPlay() {
             runtime.behavior = restBehavior();
             runtime.carrying = null;
             behaviorUntil = 0;
+            catActionPlayback = null;
             nextWanderAt = Date.now() + 12000;
             petWindow.setAlwaysOnTop(state.settings.alwaysOnTop, 'floating');
             setMousePassthrough(true);
@@ -571,6 +621,28 @@ function startPlay(mode) {
     return snapshot();
 }
 
+function resetCurrentPet(species) {
+    if (species !== state.settings.species) throw new Error('Your companion changed. Open reset again.');
+    desktopPlay?.stop(false);
+    rememberPosition();
+    const now = Date.now();
+    state = resetPetData(state, now);
+    dragging = null;
+    hovering = false;
+    runtime.behavior = 'idle';
+    runtime.carrying = null;
+    runtime.catActionStartedAt = 0;
+    catActionPlayback = null;
+    behaviorUntil = 0;
+    lastActionAt = 0;
+    nextWanderAt = now + 13000;
+    setMousePassthrough(true);
+    saveNow();
+    updateTray();
+    broadcast(`${state.name}'s data has been reset. Ready to try again!`);
+    return snapshot();
+}
+
 function registerIpc() {
     const handlers = {
         'pawpal:get': () => snapshot(),
@@ -583,6 +655,7 @@ function registerIpc() {
             return startPlay(mode);
         },
         'pawpal:preferences': (patch) => { changePreferences(patch); return snapshot(); },
+        'pawpal:reset': (species) => resetCurrentPet(species),
         'pawpal:rename': (name) => {
             state = renamePet(state, name);
             scheduleSave();
@@ -624,6 +697,9 @@ function registerIpc() {
     });
     ipcMain.on('pawpal:toy-menu', (event) => {
         if (desktopPlay?.isSender(event)) desktopPlay.menu();
+    });
+    ipcMain.on('pawpal:cat-action-playback', (event, payload) => {
+        if (trustedSender(event, true)) updateCatActionPlayback(payload);
     });
     ipcMain.on('pawpal:pointer', (event, interactive) => {
         if (!trustedSender(event, true) || typeof interactive !== 'boolean') return;

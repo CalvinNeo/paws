@@ -254,6 +254,8 @@ dialog h2 { font: 500 30px var(--serif); letter-spacing: -.7px; }
 .primary-button svg { width: 15px; height: 15px; }
 .small-dialog { width: min(400px, calc(100vw - 40px)); }
 .small-dialog h2 { font-size: 28px; }
+.reset-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 22px; }
+#reset-description { margin: 16px 0; font-size: 13px; line-height: 1.7; }
 #rename-form > label { display: block; margin-top: 25px; font-size: 11px; color: #889578; }
 #name-input { display: block; width: 100%; padding: 12px; border: 1px solid #d7dfcb; background: #fafcf5; border-radius: 7px; color: var(--ink); margin: 8px 0; }
 #rename-form > button { width: 100%; margin-top: 18px; }

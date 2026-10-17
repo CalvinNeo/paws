@@ -8,6 +8,7 @@ const CACHE_LIMIT = 3;
 const WIDTH = profile.width || 1280;
 const HEIGHT = profile.height || 1120;
 const CROSSFADE_MS = 100;
+const TRACKED_ACTIONS = { groom: 'grooming', eat: 'eating' };
 
 function loadImage(file, prefetch = false) {
     const cached = images.get(file);
@@ -121,6 +122,22 @@ class SilverCat extends HTMLElement {
         this.dispatchEvent(new CustomEvent('pet-shape-changed', { bubbles: true, composed: true }));
     }
 
+    notifyActionPlayback(phase) {
+        if (!Object.hasOwn(TRACKED_ACTIONS, this.selection?.action)
+            || this.snapshot.runtime.behavior !== TRACKED_ACTIONS[this.selection.action]) return;
+        const startedAt = this.snapshot.runtime.catActionStartedAt;
+        if (!Number.isFinite(startedAt)) return;
+        if (this.reducedMotion && phase !== 'failed') phase = 'static';
+        const clip = this.selection.clip;
+        const elapsedMs = clip ? Math.min(this.elapsedMs, clip.frames / clip.fps * 1000) : 0;
+        const signature = `${startedAt}:${phase}:${elapsedMs}`;
+        if (signature === this.playbackSignature) return;
+        this.playbackSignature = signature;
+        this.dispatchEvent(new CustomEvent('cat-action-playback', {
+            bubbles: true, composed: true, detail: { startedAt, phase, elapsedMs },
+        }));
+    }
+
     hitTest(clientX, clientY) {
         if (!this.isConnected || this.hasAttribute('asset-error')) return false;
         const point = photoPoint(this.canvas.getBoundingClientRect(), this.maskWidth, this.maskHeight, clientX, clientY);
@@ -136,6 +153,7 @@ class SilverCat extends HTMLElement {
     refreshPlayback() {
         if (!this.visible || !this.selection) {
             this.stopPlayback();
+            if (this.selection?.clip) this.notifyActionPlayback('loading');
             return;
         }
         if (!this.source || this.dirty) this.renderFrame(performance.now());
@@ -184,6 +202,7 @@ class SilverCat extends HTMLElement {
         if (!this.source || this.source.file !== frame.file) {
             this.loading = true;
             this.stopPlayback();
+            this.notifyActionPlayback('loading');
             const version = this.frameVersion;
             loadImage(frame.file).then((image) => {
                 if (version !== this.frameVersion || !this.isConnected) return;
@@ -221,6 +240,7 @@ class SilverCat extends HTMLElement {
         const signature = [frame.file, frame.frame, ...Object.values(transform), standing?.compression, standing?.sway, standing?.phase].join(':');
         if (signature === this.paintedSignature && !this.transition && this.hasAttribute('ready')) {
             this.dirty = false;
+            this.notifyActionPlayback('playing');
             return;
         }
         this.paintedSignature = signature;
@@ -260,6 +280,7 @@ class SilverCat extends HTMLElement {
         this.removeAttribute('asset-error');
         this.resolveReady?.();
         this.notifyShapeChanged();
+        this.notifyActionPlayback('playing');
         if (clip && !this.reducedMotion && !sample.done) {
             const upcoming = sampleCatClip(clip, (phaseTime ?? this.elapsedMs) + 400, action);
             const next = catAtlasFrame(clip, upcoming.frame);
@@ -268,7 +289,7 @@ class SilverCat extends HTMLElement {
     }
 
     drawShadow(pose) {
-        const [horizontal, vertical, radiusX, radiusY] = profile.poses[pose].shadow || [WIDTH / 2, HEIGHT * .925, WIDTH * .2, HEIGHT * .02];
+        const [horizontal, vertical, radiusX, radiusY] = this.selection.clip?.shadow || profile.poses[pose].shadow || [WIDTH / 2, HEIGHT * .925, WIDTH * .2, HEIGHT * .02];
         const context = this.context;
         context.save();
         context.globalCompositeOperation = 'destination-over';
@@ -288,9 +309,12 @@ class SilverCat extends HTMLElement {
         const reducedMotion = Boolean(snapshot.pet.settings.reducedMotion || this.media.matches);
         const direction = (snapshot.game?.catMotion?.facing ?? snapshot.runtime.direction) < 0 ? -1 : 1;
         const mirror = canMirrorCat(selection.clip || profile.poses[selection.pose], snapshot.game?.catMotion);
-        const restarted = selection.action === 'stand' && snapshot.runtime.catActionStartedAt !== this.actionStartedAt;
+        const tracked = Object.hasOwn(TRACKED_ACTIONS, selection.action);
+        const restarted = (selection.action === 'stand' || tracked) && snapshot.runtime.catActionStartedAt !== this.actionStartedAt;
         this.actionStartedAt = snapshot.runtime.catActionStartedAt;
-        const changed = restarted || !this.selection || ['action', 'pose', 'animation'].some((key) => selection[key] !== this.selection[key]);
+        const poseChanged = selection.pose !== this.selection?.pose;
+        const changed = restarted || !this.selection || ['action', 'animation'].some((key) => selection[key] !== this.selection[key])
+            || (poseChanged && !tracked);
         const turned = (this.direction !== direction && mirror) || this.mirror !== mirror;
         const motionChanged = this.reducedMotion !== reducedMotion;
         const motionSignature = `${snapshot.game?.catMotion?.lift}:${snapshot.game?.catMotion?.progress}`;
@@ -306,7 +330,7 @@ class SilverCat extends HTMLElement {
         this.dataset.action = selection.action;
         if (changed) {
             this.stopPlayback();
-            this.beginTransition(selection.action === 'stand' || this.selection?.action === 'stand' ? 240 : CROSSFADE_MS);
+            this.beginTransition(['stand', 'groom', 'eat'].includes(selection.action) || ['stand', 'groom', 'eat'].includes(this.selection?.action) ? 240 : CROSSFADE_MS);
             this.frameVersion += 1;
             this.elapsedMs = 0;
             this.loading = false;
@@ -322,6 +346,8 @@ class SilverCat extends HTMLElement {
         this.selection = selection;
         this.direction = direction;
         this.mirror = mirror;
+        if (tracked && !selection.clip) this.notifyActionPlayback('failed');
+        else if (reducedMotion) this.notifyActionPlayback('static');
         if (snapshot.game?.mode !== 'teaser' && ['crouch', 'run', 'pounce'].includes(selection.action) && profile.animations?.bat?.files?.[0]) {
             loadImage(profile.animations.bat.files[0], true).catch(() => {});
         }
@@ -330,7 +356,7 @@ class SilverCat extends HTMLElement {
             const file = upcoming && profile.animations?.[upcoming]?.files?.[0];
             if (file) loadImage(file, true).catch(() => {});
         }
-        this.dirty ||= changed || turned || motionChanged || (!reducedMotion && phaseChanged);
+        this.dirty ||= changed || poseChanged || turned || motionChanged || (!reducedMotion && phaseChanged);
         this.refreshPlayback();
     }
 }

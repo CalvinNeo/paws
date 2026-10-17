@@ -64,3 +64,49 @@ def repair_gap(image, alpha, neighbors, region):
     left, top, right, bottom = region
     support = (horizontal >= left) & (horizontal < right) & (vertical >= top) & (vertical < bottom)
     return np.rint(np.where(support, np.minimum(alpha, consensus), alpha) * 255).astype(np.uint8)
+
+
+def restore_foreground(image, alpha, neighbors, region):
+    alpha = np.asarray(alpha, dtype=np.float32) / 255
+    height, width = alpha.shape
+    horizontal, vertical = np.meshgrid(np.arange(width, dtype=np.float32), np.arange(height, dtype=np.float32))
+    current_gray = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
+    estimates = []
+    matches = []
+    for neighbor_rgb, neighbor_alpha in neighbors:
+        flow = cv2.calcOpticalFlowFarneback(current_gray, cv2.cvtColor(neighbor_rgb, cv2.COLOR_RGB2GRAY), None, 0.5, 4, 25, 5, 7, 1.5, 0)
+        sample_x, sample_y = horizontal + flow[..., 0], vertical + flow[..., 1]
+        estimates.append(cv2.remap(np.asarray(neighbor_alpha, dtype=np.float32) / 255, sample_x, sample_y, cv2.INTER_LINEAR))
+        reference = cv2.remap(neighbor_rgb, sample_x, sample_y, cv2.INTER_LINEAR)
+        matches.append(np.max(np.abs(reference.astype(np.float32) - image), axis=2) < 20)
+    consensus = np.minimum.reduce(estimates)
+    left, top, right, bottom = region
+    support = (horizontal >= left) & (horizontal < right) & (vertical >= top) & (vertical < bottom) & np.logical_and.reduce(matches)
+    return np.rint(np.where(support, np.maximum(alpha, consensus), alpha) * 255).astype(np.uint8)
+
+
+def relight_foreground(foreground: np.ndarray, *, exposure_stops: float, white_balance: tuple[float, float, float]) -> np.ndarray:
+    """Relight unpremultiplied sRGB floats in 0..1 using fixed linear-light settings.
+
+    Apply after tile placement, before quantization and atlas/review generation.
+    RGB white-balance gains and exposure use smooth highlight shoulders. The
+    pointwise transform leaves black/white endpoints intact and never uses alpha,
+    frame statistics, spatial filtering, or temporal adaptation.
+    """
+    foreground = np.asarray(foreground, dtype=np.float32)
+    balance = np.asarray(white_balance, dtype=np.float32)
+    if foreground.ndim < 1 or foreground.shape[-1] != 3:
+        raise ValueError('Expected RGB data with three channels')
+    if not np.isfinite(foreground).all() or np.any((foreground < 0) | (foreground > 1)):
+        raise ValueError('Expected finite RGB values in 0..1')
+    if balance.shape != (3,) or not np.isfinite(balance).all() or np.any(balance <= 0):
+        raise ValueError('Expected three positive finite white-balance gains')
+    if not np.isfinite(exposure_stops) or not -8 <= exposure_stops <= 8:
+        raise ValueError('Expected finite exposure stops between -8 and 8')
+    linear = np.where(foreground <= 0.04045, foreground / 12.92, ((foreground + 0.055) / 1.055) ** 2.4)
+    balanced = linear * balance / (1 + linear * (balance - 1))
+    gain = 2.0 ** exposure_stops
+    peak = balanced.max(axis=-1, keepdims=True)
+    lifted = balanced * gain / (1 + peak * (gain - 1))
+    result = np.where(lifted <= 0.0031308, lifted * 12.92, 1.055 * lifted ** (1 / 2.4) - 0.055)
+    return np.clip(result, 0, 1).astype(np.float32)

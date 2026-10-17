@@ -12,6 +12,7 @@ module.exports = Object.freeze({
     },
     tricks: {
         stand: { label: 'Stand up', emoji: '🐾', description: 'A little stretch', behavior: 'standing', message: 'Up for a little look around.', explanation: 'A small rise and settle animated from your cat’s standing photo, then back to their chosen pose. This is photo-based animation, not a recorded stand-up sequence. Wake them first.' },
+        groom: { label: 'Groom', emoji: '🐱', description: 'A little grooming', behavior: 'grooming', message: 'A little lick, a little tidy up.', explanation: 'A little recorded grooming, then back to your cat’s chosen pose. Wake them first.' },
     },
     friendship: 'A little cat. A quiet kind of trust.',
     welcome: 'A quiet moment with you. ♡',

@@ -68,6 +68,49 @@ test('standing finishes once and reduced motion shows the unwarped photo', () =>
     }
 });
 
+test('grooming plays its real clip once, returns to the selected pose, and never substitutes other footage', () => {
+    const clip = { ...CLIP, fps: 15, frames: 64, files: Array.from({ length: 4 }, (_, index) => `motion/groom-${index}.webp`) };
+    const profile = { ...PROFILE, animations: { ...PROFILE.animations, groom: clip } };
+    for (const catPose of ['sitting', 'loaf', 'relaxed']) {
+        const grooming = snapshot('grooming', catPose);
+        assert.deepEqual(selectCatAnimation(profile, grooming), { action: 'groom', pose: catPose, animation: 'groom', clip });
+        assert.equal(selectCatAnimation(profile, snapshot('idle', catPose)).pose, catPose);
+        assert.equal(selectCatAnimation(profile, snapshot('sleeping', catPose)).action, 'sleep');
+        assert.equal(selectCatAnimation(profile, snapshot('grooming', catPose, 'bat')).animation, 'bat');
+        assert.deepEqual(selectCatAnimation(profile, grooming, new Set(['groom'])), { action: 'groom', pose: catPose, animation: null, clip: null });
+        assert.equal(selectCatAnimation(PROFILE, grooming).animation, null);
+    }
+    for (const [elapsed, frame] of [[0, 0], [1000, 15], [1100, 16], [2200, 33], [3300, 49], [4200, 63], [10000, 63]]) {
+        assert.equal(sampleCatClip(clip, elapsed, 'groom').frame, frame);
+        assert.equal(catAtlasFrame(clip, frame).page, Math.floor(frame / 16));
+    }
+    assert.equal(sampleCatClip(clip, 4200, 'groom').done, true);
+});
+
+test('eating uses only its real footage, with the selected still as the optional fallback', () => {
+    const clip = { ...CLIP, fps: 15, frames: 64, optional: true, files: Array.from({ length: 4 }, (_, index) => `motion/eat-${index}.webp`) };
+    const profile = { ...PROFILE, animations: { ...PROFILE.animations, eat: clip } };
+    for (const catPose of ['sitting', 'loaf', 'relaxed']) {
+        const eating = snapshot('eating', catPose);
+        const fallback = { action: 'eat', pose: catPose, animation: null, clip: null };
+        assert.deepEqual(selectCatAnimation(profile, eating), { action: 'eat', pose: catPose, animation: 'eat', clip });
+        assert.deepEqual(selectCatAnimation(PROFILE, eating), fallback);
+        assert.deepEqual(selectCatAnimation(profile, eating, new Set(['eat'])), fallback);
+        assert.deepEqual(selectCatAnimation({ ...profile, animations: { ...profile.animations, eat: { ...clip, frames: 1000 } } }, eating), fallback);
+        assert.equal(selectCatAnimation(profile, snapshot('idle', catPose)).pose, catPose);
+        assert.equal(selectCatAnimation(profile, snapshot('sleeping', catPose)).action, 'sleep');
+        assert.equal(selectCatAnimation(profile, snapshot('eating', catPose, 'bat')).animation, 'bat');
+    }
+    for (const [elapsed, frame] of [[0, 0], [1000, 15], [1100, 16], [2200, 33], [3300, 49], [4200, 63], [10000, 63]]) {
+        assert.equal(sampleCatClip(clip, elapsed, 'eat').frame, frame);
+        assert.equal(catAtlasFrame(clip, frame).page, Math.floor(frame / 16));
+    }
+    assert.equal(sampleCatClip(clip, 4200, 'eat').done, true);
+    const shorter = { ...clip, frames: 37, fps: 12 };
+    assert.deepEqual(sampleCatClip(shorter, 3000, 'eat'), { frame: 36, done: true });
+    assert.equal(catAtlasFrame(shorter, 36).page, 2);
+});
+
 test('clip timing advances at the recorded fps and loops without skipping the last frame', () => {
     assert.deepEqual(sampleCatClip(CLIP, 0), { frame: 0, done: false });
     assert.equal(sampleCatClip(CLIP, 54).frame, 0);

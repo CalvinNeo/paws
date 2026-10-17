@@ -7,9 +7,10 @@ const ACTION_CLIPS = {
     bat: ['bat', 'watch', 'idle'],
     settle: ['settle', 'watch', 'idle'],
     pet: ['pet', 'idle'],
-    eat: ['eat', 'pet', 'idle'],
+    eat: ['eat'],
     sleep: ['sleep'],
     stand: [],
+    groom: ['groom'],
 };
 
 const TEASER_CLIPS = {
@@ -22,7 +23,7 @@ const TEASER_CLIPS = {
     settle: ['teaser-watch'],
 };
 
-const SINGLE_ACTIONS = new Set(['bat', 'pounce', 'settle', 'pet', 'eat']);
+const SINGLE_ACTIONS = new Set(['bat', 'pounce', 'settle', 'pet', 'eat', 'groom']);
 const PHASE_ACTIONS = new Set(['crouch', 'pounce', 'bat', 'settle']);
 
 export const CAT_PAW_CONTACT = Object.freeze({ x: .66, y: .9, baseline: .925, impactProgress: 2 / 3 });
@@ -57,14 +58,14 @@ export function selectCatAnimation(profile, snapshot, unavailable = new Set(), u
     const behavior = snapshot.runtime?.behavior || 'idle';
     const game = snapshot.game;
     const phaseActions = { watching: 'watch', pouncing: 'pounce', batting: 'bat', celebrating: 'settle' };
-    const behaviorActions = { walking: 'run', petting: 'pet', eating: 'eat', playing: 'bat', standing: 'stand' };
+    const behaviorActions = { walking: 'run', petting: 'pet', eating: 'eat', playing: 'bat', standing: 'stand', grooming: 'groom' };
     const action = behavior === 'sleeping' ? 'sleep'
         : game ? (Object.hasOwn(ACTION_CLIPS, game.catMotion?.action) ? game.catMotion.action : phaseActions[game.phase] || 'watch')
             : behaviorActions[behavior] || 'idle';
     const restingPose = Object.hasOwn(profile.poses, settings.catPose) && !unavailablePoses.has(settings.catPose) ? settings.catPose : 'sitting';
     const requestedPose = action === 'sleep' ? 'sleeping'
         : action === 'stand' ? 'standing'
-        : game || action === 'run' || action === 'eat' ? profile.playPose || 'reaching' : restingPose;
+        : game || action === 'run' ? profile.playPose || 'reaching' : restingPose;
     const pose = Object.hasOwn(profile.poses, requestedPose) && !unavailablePoses.has(requestedPose) ? requestedPose : restingPose;
     const candidates = game?.mode === 'teaser'
         ? [...(TEASER_CLIPS[action] || []), ...ACTION_CLIPS[action]]

@@ -11,7 +11,7 @@ import numpy as np
 import pillow_heif
 from PIL import Image, ImageDraw, ImageOps
 
-from cat_matting import refine_foreground, stabilize_alpha, repair_gap, remove_edge_spill
+from cat_matting import refine_foreground, stabilize_alpha, repair_gap, remove_edge_spill, restore_foreground, relight_foreground
 
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -20,11 +20,18 @@ FRAME_SIZE = (768, 672)
 STILLS = {'sitting': 'IMG_3302', 'loaf': 'IMG_0960', 'sleeping': 'IMG_3307', 'relaxed': 'IMG_9704', 'standing': 'IMG_3345'}
 TEASER_PLACEMENT = {'bounds': [250, 650, 750, 1460], 'sourceAnchor': [500, 1420], 'canvasAnchor': [384, 621.6], 'scale': 0.8}
 CLIPS = {
+    'eat': {'source': 'a4283a233e8e675a49b23a79607c4a11.mov', 'startFrame': 960, 'frameStep': 2, 'frames': 64, 'fps': 15, 'loop': False, 'pingPong': False, 'rotationDegrees': 90, 'shadow': [480, 970, 280, 24],
+            'lighting': {'exposureStops': 0.9, 'whiteBalance': [0.9, 1.0, 1.22]},
+            'gapRepairs': {frame: [90, 960, 290, 1220] for frame in (5, 16, 61, 62)}, 'gapReferences': {61: [60, 63], 62: [60, 63]},
+            'backgroundRepairs': {**{frame: [9, 10] for frame in range(1, 9)}, **{frame: [49, 50] for frame in range(51, 65)}}, 'backgroundRegion': [160, 380, 270, 460]},
     'idle': {'source': 'IMG_1768.MOV', 'start': 0.800, 'frames': 12, 'fps': 18, 'loop': True, 'pingPong': True, 'loopPauseMs': 1800},
     'watch': {'source': 'IMG_1768.MOV', 'start': 19.383, 'frames': 12, 'fps': 18, 'loop': True, 'pingPong': True, 'loopPauseMs': 600, 'roi': [140, 400, 750, 1260]},
     'bat': {'source': 'IMG_1768.MOV', 'start': 17.515, 'frames': 19, 'fps': 24, 'loop': False, 'pingPong': False, 'gapRepairs': {9: [440, 990, 660, 1210], 13: [440, 990, 660, 1210]}},
     'teaser-watch': {'source': 'IMG_2125.MOV', 'startFrame': 174, 'frames': 8, 'fps': 30, 'loop': True, 'pingPong': True, 'loopPauseMs': 600, 'roi': [250, 750, 750, 1460], 'alignSubject': False, 'placement': TEASER_PLACEMENT, 'containsJump': False},
     'teaser-ready': {'source': 'IMG_2125.MOV', 'startFrame': 192, 'frames': 5, 'fps': 30, 'loop': False, 'pingPong': False, 'roi': [250, 650, 750, 1460], 'alignSubject': False, 'placement': TEASER_PLACEMENT, 'containsJump': False},
+    'groom': {'source': '181426a85ab663fe2059e5167cf63ba3.mov', 'startFrame': 720, 'frameStep': 2, 'frames': 64, 'fps': 15, 'loop': False, 'pingPong': False,
+              'foregroundRepairs': {35: [34, 36], **{frame: [39, 46] for frame in range(40, 46)}, 51: [50, 52]}, 'repairRegion': [240, 735, 520, 850],
+              'lighting': {'exposureStops': 1.25, 'whiteBalance': [0.86, 1.0, 1.28]}},
 }
 
 
@@ -152,8 +159,12 @@ def prepare_clip(name, settings, photos, cache, output, extractor):
     if any(not source.exists() for source in source_files):
         command = [imageio_ffmpeg.get_ffmpeg_exe(), '-hide_banner', '-loglevel', 'error', '-y']
         if 'startFrame' in settings:
-            last_frame = settings['startFrame'] + settings['frames'] - 1
-            command += ['-i', str(photos / settings['source']), '-vf', f"select=between(n\\,{settings['startFrame']}\\,{last_frame})"]
+            frame_step = settings.get('frameStep', 1)
+            last_frame = settings['startFrame'] + (settings['frames'] - 1) * frame_step
+            selection = f"between(n\\,{settings['startFrame']}\\,{last_frame})"
+            if frame_step > 1:
+                selection += f"*not(mod(n-{settings['startFrame']}\\,{frame_step}))"
+            command += ['-i', str(photos / settings['source']), '-vf', f'select={selection}']
         else:
             command += ['-ss', str(settings['start']), '-i', str(photos / settings['source'])]
         command += ['-frames:v', str(settings['frames']), '-fps_mode', 'passthrough', str(directory / 'frame-%04d.png')]
@@ -169,10 +180,24 @@ def prepare_clip(name, settings, photos, cache, output, extractor):
         gap = settings.get('gapRepairs', {}).get(frame_number)
         if gap:
             neighbors = []
-            for neighbor in (frame_number - 1, frame_number + 1):
+            for neighbor in settings.get('gapReferences', {}).get(frame_number, (frame_number - 1, frame_number + 1)):
                 neighbor_file = directory / f'frame-{neighbor:04d}.png'
                 neighbors.append((np.asarray(Image.open(neighbor_file).convert('RGB')), foreground_mask(neighbor_file, directory / 'masks', extractor, settings.get('roi'))))
             mask = Image.fromarray(repair_gap(np.asarray(original), mask, neighbors, gap))
+        references = settings.get('backgroundRepairs', {}).get(frame_number)
+        if references:
+            neighbors = []
+            for neighbor in references:
+                neighbor_file = directory / f'frame-{neighbor:04d}.png'
+                neighbors.append((np.asarray(Image.open(neighbor_file).convert('RGB')), foreground_mask(neighbor_file, directory / 'masks', extractor, settings.get('roi'))))
+            mask = Image.fromarray(repair_gap(np.asarray(original), mask, neighbors, settings['backgroundRegion']))
+        references = settings.get('foregroundRepairs', {}).get(frame_number)
+        if references:
+            neighbors = []
+            for neighbor in references:
+                neighbor_file = directory / f'frame-{neighbor:04d}.png'
+                neighbors.append((np.asarray(Image.open(neighbor_file).convert('RGB')), foreground_mask(neighbor_file, directory / 'masks', extractor, settings.get('roi'))))
+            mask = Image.fromarray(restore_foreground(np.asarray(original), mask, neighbors, settings['repairRegion']))
         rgb, foreground, alpha = refine_frame(original, mask, 6)
         bounds = bounds_for(alpha)
         if min(bounds[0], bounds[1], original.width - bounds[2], original.height - bounds[3]) < 2:
@@ -191,13 +216,25 @@ def prepare_clip(name, settings, photos, cache, output, extractor):
             transform = np.float32([[1, 0, -shift[0]], [0, 1, -shift[1]]])
             rgba = cv2.warpAffine(rgba, transform, original.size, flags=cv2.INTER_LINEAR)
         refined_frames.append(Image.fromarray(rgba))
+    rotation = settings.get('rotationDegrees', 0)
+    if rotation:
+        refined_frames = [frame.rotate(rotation, resample=Image.Resampling.BICUBIC, expand=True) for frame in refined_frames]
     bounds = [frame.getchannel('A').point(lambda value: 255 if value > 12 else 0).getbbox() for frame in refined_frames]
     shared_bounds = (min(item[0] for item in bounds), min(item[1] for item in bounds), max(item[2] for item in bounds), max(item[3] for item in bounds))
     placement = settings.get('placement')
     frames = [place_fixed(frame, placement, FRAME_SIZE) if placement else place(frame, shared_bounds, FRAME_SIZE) for frame in refined_frames]
+    lighting = settings.get('lighting')
+    if lighting:
+        for index, frame in enumerate(frames):
+            pixels = np.array(frame)
+            pixels[..., :3] = np.rint(relight_foreground(
+                pixels[..., :3].astype(np.float32) / 255,
+                exposure_stops=lighting['exposureStops'],
+                white_balance=lighting['whiteBalance'],
+            ) * 255).astype(np.uint8)
+            frames[index] = Image.fromarray(pixels)
     review_frames(frames, cache, name)
-    if placement:
-        review_frames(frames, cache, name, '#f6f3e9', '-light')
+    review_frames(frames, cache, name, '#f6f3e9', '-light')
     files = []
     for offset in range(0, len(frames), 16):
         atlas = Image.new('RGBA', (FRAME_SIZE[0] * 4, FRAME_SIZE[1] * 4))
@@ -218,6 +255,14 @@ def prepare_clip(name, settings, photos, cache, output, extractor):
         place(refined_frames[0], shared_bounds, SIZE).save(output / 'reaching-hd.png')
     print(f'Prepared {name}: {len(frames)} actual video frames', flush=True)
     metadata = {'fps': settings['fps'], 'frames': len(frames), 'loop': settings['loop'], 'pingPong': settings['pingPong'], 'loopPauseMs': settings.get('loopPauseMs', 0), 'frameWidth': FRAME_SIZE[0], 'frameHeight': FRAME_SIZE[1], 'columns': 4, 'rows': 4, 'files': files, 'mirror': False}
+    if lighting:
+        metadata['lighting'] = lighting
+    if 'startFrame' in settings:
+        metadata.update({'source': {'file': settings['source'], 'startFrame': settings['startFrame'], 'frameCount': len(frames), 'frameStep': settings.get('frameStep', 1)}, 'durationMs': round(len(frames) * 1000 / settings['fps'])})
+    if rotation:
+        metadata['rotationDegrees'] = rotation
+    if 'shadow' in settings:
+        metadata['shadow'] = settings['shadow']
     if placement:
         metadata.update({'containsJump': settings.get('containsJump', False), 'placement': placement, 'source': {'file': settings['source'], 'startFrame': settings['startFrame'], 'frameCount': len(frames)}, 'durationMs': round(len(frames) * 1000 / settings['fps'])})
     return metadata

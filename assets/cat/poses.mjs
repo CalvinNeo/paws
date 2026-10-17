@@ -68,6 +68,79 @@ export default {
         }
     },
     "animations": {
+        "eat": {
+            "fps": 15,
+            "frames": 64,
+            "loop": false,
+            "pingPong": false,
+            "loopPauseMs": 0,
+            "frameWidth": 768,
+            "frameHeight": 672,
+            "columns": 4,
+            "rows": 4,
+            "files": [
+                "motion/eat-0.webp",
+                "motion/eat-1.webp",
+                "motion/eat-2.webp",
+                "motion/eat-3.webp"
+            ],
+            "mirror": false,
+            "source": {
+                "file": "a4283a233e8e675a49b23a79607c4a11.mov",
+                "startFrame": 960,
+                "frameCount": 64,
+                "frameStep": 2
+            },
+            "durationMs": 4267,
+            "rotationDegrees": 90,
+            "lighting": {
+                "exposureStops": 0.9,
+                "whiteBalance": [
+                    0.9,
+                    1.0,
+                    1.22
+                ]
+            },
+            "shadow": [
+                480,
+                970,
+                280,
+                24
+            ]
+        },
+        "groom": {
+            "fps": 15,
+            "frames": 64,
+            "loop": false,
+            "pingPong": false,
+            "loopPauseMs": 0,
+            "frameWidth": 768,
+            "frameHeight": 672,
+            "columns": 4,
+            "rows": 4,
+            "files": [
+                "motion/groom-0.webp",
+                "motion/groom-1.webp",
+                "motion/groom-2.webp",
+                "motion/groom-3.webp"
+            ],
+            "mirror": false,
+            "source": {
+                "file": "181426a85ab663fe2059e5167cf63ba3.mov",
+                "startFrame": 720,
+                "frameCount": 64,
+                "frameStep": 2
+            },
+            "durationMs": 4267,
+            "lighting": {
+                "exposureStops": 1.25,
+                "whiteBalance": [
+                    0.86,
+                    1.0,
+                    1.28
+                ]
+            }
+        },
         "idle": {
             "fps": 18,
             "frames": 12,

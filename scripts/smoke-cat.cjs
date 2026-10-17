@@ -3,7 +3,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { _electron: electron } = require('playwright');
-const { createState } = require('../src/model.cjs');
+const { createState, advanceState, performAction } = require('../src/model.cjs');
 const catProfile = require('../assets/cat/poses.mjs').default;
 const catCompanion = require('../src/companions/cat.cjs');
 
@@ -24,6 +24,7 @@ function checkAssets() {
         assert.ok(clip?.frames > 1, `cat QA requires the real ${name} atlas`);
         files.push(...clip.files);
     }
+    if (catProfile.animations?.eat) files.push(...catProfile.animations.eat.files);
     for (const file of files) assert.ok(fs.existsSync(path.join(root, 'assets/cat', file)), `Missing private cat asset: ${file}`);
 }
 
@@ -287,6 +288,140 @@ async function checkStanding() {
     console.log('✓ cat standing: replay, return to prior pose, reduced motion, no rewards, and no screen takeover');
 }
 
+async function checkGrooming() {
+    await petPage.waitForTimeout(500);
+    const asleep = await petPage.evaluate(() => window.pawpal.action('groom'));
+    assert.equal(asleep.ok, false);
+    assert.equal(asleep.error, 'Wake up first.');
+    assert.equal((await petPage.evaluate(() => window.pawpal.action('wake'))).ok, true);
+    await preferences({ catPose: 'loaf', reducedMotion: false });
+    await petPage.waitForTimeout(500);
+    const before = await state();
+    const windows = (await nativeWindows()).map(({ ignoresMouse, ...window }) => window);
+    assert.equal(before.groomingAvailable, true);
+    assert.equal((await petPage.evaluate(() => window.pawpal.action('groom'))).ok, true);
+    const avatar = petPage.locator('silver-cat');
+    await petPage.waitForFunction(() => document.querySelector('pet-avatar').avatar.dataset.animation === 'groom');
+    await petPage.waitForTimeout(800);
+    const firstTimestamp = (await state()).runtime.catActionStartedAt;
+    assert.ok(Number(await avatar.getAttribute('data-frame')) > 3);
+    assert.equal((await petPage.evaluate(() => window.pawpal.action('groom'))).ok, true);
+    assert.ok((await state()).runtime.catActionStartedAt > firstTimestamp);
+    assert.ok(await avatar.evaluate(cat => cat.elapsedMs) < 400);
+    for (const frame of [16, 32, 48, 63]) {
+        await petPage.waitForFunction(frame => {
+            const cat = document.querySelector('pet-avatar').avatar;
+            return cat.dataset.animation === 'groom' && Number(cat.dataset.frame) >= frame;
+        }, frame);
+    }
+    await petPage.screenshot({ path: path.join(artifacts, 'cat-grooming-30.png'), omitBackground: true });
+    const during = await state();
+    assert.equal(during.pet.interactions, before.pet.interactions);
+    assert.equal(during.pet.affection, before.pet.affection);
+    assert.deepEqual(during.pet.playStats, before.pet.playStats);
+    assert.equal(during.pet.settings.catPose, 'loaf');
+    assert.deepEqual((await nativeWindows()).map(({ ignoresMouse, ...window }) => window), windows);
+    await petPage.waitForFunction(() => window.pawpal.getState().then(result => result.data.runtime.behavior === 'idle'));
+    await petPage.waitForFunction(() => document.querySelector('pet-avatar').avatar.dataset.pose === 'loaf' && document.querySelector('pet-avatar').avatar.dataset.animation === 'static');
+    await preferences({ reducedMotion: true });
+    assert.equal((await petPage.evaluate(() => window.pawpal.action('groom'))).ok, true);
+    await petPage.waitForTimeout(200);
+    assert.equal(await avatar.evaluate(cat => cat.animationFrame), null);
+    assert.equal(await avatar.getAttribute('data-frame'), '0');
+    await petPage.waitForTimeout(500);
+    assert.equal((await petPage.evaluate(() => window.pawpal.action('sleep'))).ok, true);
+    await preferences({ catPose: 'sitting', reducedMotion: false });
+    console.log('✓ cat grooming: complete real clip, replay, reduced motion, prior pose, and no input takeover');
+}
+
+async function feedCat() {
+    const before = await state();
+    const result = await petPage.evaluate(() => window.pawpal.action('feed'));
+    assert.equal(result.ok, true, result.error);
+    assert.equal(result.data.runtime.behavior, 'eating');
+    const expected = performAction(before.pet, 'feed', result.data.pet.updatedAt).state;
+    for (const key of ['fullness', 'energy', 'happiness']) assert.ok(Math.abs(result.data.pet[key] - expected[key]) < .000001, `${key} uses the normal feeding amount`);
+    for (const key of ['affection', 'interactions', 'activity', 'playStats', 'settings']) assert.deepEqual(result.data.pet[key], expected[key]);
+    return result.data;
+}
+
+async function checkEating() {
+    await petPage.waitForTimeout(500);
+    const asleep = await petPage.evaluate(() => window.pawpal.action('feed'));
+    assert.equal(asleep.ok, false);
+    assert.equal(asleep.error, 'Let your friend wake up before snack time.');
+    assert.equal((await petPage.evaluate(() => window.pawpal.action('wake'))).ok, true);
+    await preferences({ catPose: 'loaf', reducedMotion: false });
+    await petPage.waitForTimeout(500);
+    const windows = (await nativeWindows()).map(({ ignoresMouse, ...window }) => window);
+    const first = await feedCat();
+    const avatar = petPage.locator('silver-cat');
+    const clip = catProfile.animations?.eat;
+    if (!clip) {
+        await petPage.waitForFunction(() => {
+            const cat = document.querySelector('pet-avatar').avatar;
+            return cat.dataset.action === 'eat' && cat.dataset.animation === 'static' && cat.dataset.pose === 'loaf';
+        });
+        await petPage.waitForFunction(() => window.pawpal.getState().then(result => result.data.runtime.behavior === 'idle'));
+        assert.equal((await state()).pet.interactions, first.pet.interactions);
+        assert.equal((await petPage.evaluate(() => window.pawpal.action('sleep'))).ok, true);
+        await preferences({ catPose: 'sitting', reducedMotion: false });
+        console.log('✓ optional eating footage absent: feeding succeeds and shows the selected still');
+        return;
+    }
+    const duration = Math.ceil(clip.frames / clip.fps * 1000) + 300;
+    await petPage.waitForFunction(() => document.querySelector('pet-avatar').avatar.dataset.animation === 'eat');
+    await petPage.waitForTimeout(600);
+    assert.ok(Number(await avatar.getAttribute('data-frame')) > 0);
+    const replay = await feedCat();
+    assert.ok(replay.runtime.catActionStartedAt > first.runtime.catActionStartedAt);
+    await petPage.waitForFunction(startedAt => document.querySelector('pet-avatar').avatar.actionStartedAt === startedAt, replay.runtime.catActionStartedAt);
+    assert.ok(await avatar.evaluate(cat => cat.elapsedMs) < 400, 'feeding again restarts the real eating clip');
+    await petPage.evaluate(startedAt => window.pawpal.catActionPlayback({ startedAt, phase: 'failed', elapsedMs: 0 }), first.runtime.catActionStartedAt);
+    assert.equal((await state()).runtime.behavior, 'eating', 'a stale failed replay cannot cancel the current feed');
+    const capacity = clip.columns * clip.rows;
+    const checkpoints = Array.from({ length: Math.ceil(clip.frames / capacity) }, (_, index) => Math.min(clip.frames - 1, (index + 1) * capacity - 1));
+    for (const frame of checkpoints) {
+        await petPage.waitForFunction(frame => {
+            const cat = document.querySelector('pet-avatar').avatar;
+            return cat.dataset.animation === 'eat' && Number(cat.dataset.frame) >= frame;
+        }, frame, { timeout: duration + 10000 });
+    }
+    await petPage.screenshot({ path: path.join(artifacts, 'cat-eating-30.png'), omitBackground: true });
+    const during = await state();
+    assert.equal(during.pet.interactions, replay.pet.interactions);
+    assert.equal(during.pet.affection, replay.pet.affection);
+    assert.deepEqual(during.pet.playStats, replay.pet.playStats);
+    assert.equal(during.pet.settings.catPose, 'loaf');
+    assert.equal(during.pet.activity.filter(entry => entry.type === 'feed').length, 2);
+    assert.deepEqual((await nativeWindows()).map(({ ignoresMouse, ...window }) => window), windows, 'eating never moves, resizes, focuses, or creates a window');
+    await petPage.waitForFunction(() => window.pawpal.getState().then(result => result.data.runtime.behavior === 'idle'), undefined, { timeout: duration + 10000 });
+    await petPage.waitForFunction(() => {
+        const cat = document.querySelector('pet-avatar').avatar;
+        return cat.dataset.pose === 'loaf' && cat.dataset.animation === 'static';
+    });
+    await preferences({ reducedMotion: true });
+    const reduced = await feedCat();
+    await petPage.waitForFunction(() => document.querySelector('pet-avatar').avatar.dataset.animation === 'eat');
+    await petPage.waitForTimeout(200);
+    assert.equal(await avatar.evaluate(cat => cat.animationFrame), null);
+    assert.equal(await avatar.getAttribute('data-frame'), '0');
+    await petPage.waitForTimeout(500);
+    const full = await petPage.evaluate(() => window.pawpal.action('feed'));
+    assert.equal(full.ok, false);
+    assert.equal(full.error, 'A happy, full tummy! Save a treat for later.');
+    assert.equal((await state()).runtime.catActionStartedAt, reduced.runtime.catActionStartedAt);
+    assert.equal((await state()).pet.interactions, reduced.pet.interactions);
+    assert.equal((await petPage.evaluate(() => window.pawpal.action('sleep'))).ok, true);
+    await petPage.evaluate(startedAt => {
+        for (const phase of ['loading', 'playing', 'failed']) window.pawpal.catActionPlayback({ startedAt, phase, elapsedMs: 0 });
+    }, reduced.runtime.catActionStartedAt);
+    assert.equal((await state()).runtime.behavior, 'sleeping');
+    assert.equal((await state()).pet.interactions, reduced.pet.interactions);
+    await preferences({ catPose: 'sitting', reducedMotion: false });
+    console.log('✓ cat eating: all real atlas pages, replay, single feed rewards, reduced motion, cancellation, and sleep/fullness limits');
+}
+
 async function assertShapeInput(page, expectedSize) {
     const window = await toyWindow();
     const snapshot = (await page.evaluate(() => window.pawpal.toyState())).data;
@@ -440,15 +575,167 @@ async function teaserInputCleanup() {
     console.log('✓ teaser release and pointer cancellation clear capture and restore mouse passthrough');
 }
 
+function savedProfiles() {
+    return JSON.parse(fs.readFileSync(path.join(userData, 'companion.json'), 'utf8'));
+}
+
+async function confirmCatReset(dashboard, before, sentinel) {
+    const bounds = (await nativeWindows()).find((window) => window.filename === 'pet.html').bounds;
+    const count = await dashboard.evaluate(() => window.__catQAResets.length);
+    await dashboard.locator('#reset-pet').click();
+    await dashboard.locator('#reset-dialog[open]').waitFor();
+    assert.ok((await dashboard.locator('#reset-title').textContent()).includes(before.pet.name));
+    assert.equal(await dashboard.locator('#reset-form').getAttribute('data-species'), 'cat');
+    await dashboard.locator('#confirm-reset').click();
+    await dashboard.locator('#reset-dialog').waitFor({ state: 'hidden' });
+    const saved = savedProfiles();
+    const reset = await dashboard.evaluate((count) => window.__catQAResets[count], count);
+    assert.ok(reset, 'the confirmed reset broadcasts the new cat state');
+    assert.equal(await dashboard.evaluate(() => window.__catQAResets.length), count + 1);
+    assert.equal(await dashboard.evaluate(() => window.__catQAResetSubmissions), count + 1, 'confirmation submits the reset form once');
+    assert.deepEqual([reset.pet.fullness, reset.pet.happiness, reset.pet.energy], [82, 88, 76]);
+    assert.equal(reset.pet.sleeping, false);
+    assert.equal(reset.pet.affection, 0);
+    assert.equal(reset.pet.interactions, 0);
+    assert.deepEqual(reset.pet.playStats, { pounce: 0, bubbles: 0, teaser: 0 });
+    assert.deepEqual(reset.pet.activity, []);
+    assert.ok(reset.pet.updatedAt >= before.pet.updatedAt);
+    assert.equal(reset.pet.name, before.pet.name);
+    assert.equal(reset.pet.adoptedAt, before.pet.adoptedAt);
+    assert.deepEqual(reset.pet.settings, before.pet.settings);
+    assert.deepEqual(reset.pet.position, { x: bounds.x, y: bounds.y });
+    assert.equal(reset.runtime.behavior, 'idle');
+    assert.equal(reset.runtime.catActionStartedAt, 0);
+    assert.equal(reset.runtime.warning, null);
+    assert.equal(reset.game, null);
+    assert.equal(saved.activeSpecies, 'cat');
+    assert.deepEqual(saved.pets.cat, reset.pet, 'reset reaches companion.json before the dialog closes');
+    assert.deepEqual(saved.pets.dog, sentinel, 'the inactive profile remains an unchanged storage sentinel');
+    assert.equal(await dashboard.locator('#view-preferences').isVisible(), true);
+    assert.equal(await dashboard.locator('[data-view="preferences"]').getAttribute('aria-current'), 'page');
+    for (const [need, value] of [['fullness', 82], ['happiness', 88], ['energy', 76]]) {
+        assert.equal(await dashboard.locator(`#${need}-meter`).getAttribute('aria-valuenow'), String(value));
+    }
+    assert.equal(await dashboard.locator('#interaction-count').textContent(), 'YOUR STORY STARTS HERE');
+    for (const mode of modes) assert.match(await dashboard.locator(`#game-total-${mode}`).textContent(), /^0 /);
+    assert.deepEqual((await nativeWindows()).find((window) => window.filename === 'pet.html').bounds, bounds);
+    return reset;
+}
+
+async function checkReset(sentinel) {
+    assert.equal(await application.evaluate(({ app }) => app.getPath('userData')), userData,
+        'reset QA must use only the temporary PAWPAL_USER_DATA save');
+    await preferences({ catPose: 'loaf', size: 55, alwaysOnTop: false, roaming: false, reducedMotion: false });
+    assert.equal((await petPage.evaluate(() => window.pawpal.rename('Reset QA 猫'))).ok, true);
+    await petPage.waitForTimeout(500);
+    if ((await state()).pet.sleeping) assert.equal((await petPage.evaluate(() => window.pawpal.action('wake'))).ok, true);
+    while ((await state()).pet.fullness < 98) {
+        await petPage.waitForTimeout(500);
+        assert.equal((await petPage.evaluate(() => window.pawpal.action('feed'))).ok, true);
+    }
+    await petPage.waitForTimeout(500);
+    assert.equal((await petPage.evaluate(() => window.pawpal.action('feed'))).ok, false, 'fullness prevents another snack before reset');
+    assert.equal((await petPage.evaluate(() => window.pawpal.action('sleep'))).ok, true);
+    await petPage.waitForTimeout(500);
+    assert.equal((await petPage.evaluate(() => window.pawpal.action('feed'))).ok, false, 'sleep prevents feeding before reset');
+    assert.equal((await petPage.evaluate(() => window.pawpal.window('home'))).ok, true);
+    const dashboard = await pageFor('index.html');
+    await dashboard.locator('[data-view="preferences"]').click();
+    await dashboard.locator('#reset-pet').waitFor();
+    await dashboard.evaluate(() => {
+        window.__catQAResets = [];
+        window.__catQAResetSubmissions = 0;
+        document.getElementById('reset-form').addEventListener('submit', () => { window.__catQAResetSubmissions += 1; }, true);
+        window.pawpal.onState((snapshot) => {
+            if (snapshot.message && !snapshot.game && snapshot.pet.interactions === 0 && snapshot.pet.activity.length === 0
+                && snapshot.runtime.catActionStartedAt === 0 && snapshot.runtime.behavior === 'idle') {
+                window.__catQAResets.push(snapshot);
+            }
+        });
+    });
+    const before = await state();
+    const savedBefore = savedProfiles();
+    assert.equal(before.pet.sleeping, true);
+    assert.ok(before.pet.fullness >= 98);
+    assert.ok(before.pet.affection > 0 && before.pet.interactions > 0);
+    assert.ok(before.pet.playStats.pounce > 0 && before.pet.playStats.bubbles > 0);
+    assert.deepEqual(savedBefore.pets.dog, sentinel);
+    await dashboard.locator('#reset-pet').click();
+    await dashboard.locator('#reset-dialog[open]').waitFor();
+    assert.ok((await dashboard.locator('#reset-title').textContent()).includes(before.pet.name));
+    await dashboard.screenshot({ path: path.join(artifacts, 'cat-reset-confirmation.png') });
+    await dashboard.locator('#cancel-reset').click();
+    await dashboard.locator('#reset-dialog').waitFor({ state: 'hidden' });
+    const cancelled = await state();
+    assert.deepEqual(cancelled.pet, advanceState(before.pet, cancelled.pet.updatedAt), 'cancel only allows normal passage of care time');
+    assert.deepEqual(cancelled.runtime, before.runtime);
+    assert.deepEqual(await dashboard.evaluate(() => [window.__catQAResets.length, window.__catQAResetSubmissions]), [0, 0]);
+    const savedAfterCancel = savedProfiles();
+    assert.deepEqual(savedAfterCancel.pets.cat, advanceState(savedBefore.pets.cat, savedAfterCancel.pets.cat.updatedAt));
+    assert.deepEqual(savedAfterCancel.pets.dog, sentinel);
+    await dashboard.screenshot({ path: path.join(artifacts, 'cat-reset-cancelled.png') });
+
+    const first = await confirmCatReset(dashboard, cancelled, sentinel);
+    await dashboard.screenshot({ path: path.join(artifacts, 'cat-reset-preferences.png') });
+    const repeated = await confirmCatReset(dashboard, first, sentinel);
+    assert.deepEqual({ ...repeated.pet, updatedAt: first.pet.updatedAt }, first.pet, 'repeated reset changes only its timestamp');
+    await dashboard.locator('[data-view="home"]').click();
+    assert.equal(await dashboard.locator('[data-action="feed"]').isEnabled(), true);
+    assert.equal(await dashboard.locator('#sleep-button').getAttribute('data-action'), 'sleep');
+    await dashboard.screenshot({ path: path.join(artifacts, 'cat-reset-home.png') });
+    await dashboard.locator('[data-action="feed"]').click();
+    await petPage.waitForFunction(() => window.pawpal.getState().then((result) => result.data.pet.interactions === 1));
+    const fed = await state();
+    assert.equal(fed.pet.affection, 1);
+    assert.deepEqual(fed.pet.activity.map((entry) => entry.type), ['feed']);
+    assert.equal(fed.runtime.behavior, 'eating');
+    await dashboard.locator('[data-view="preferences"]').click();
+    await confirmCatReset(dashboard, fed, sentinel);
+    await petPage.evaluate((startedAt) => {
+        for (const phase of ['loading', 'playing', 'static', 'failed']) {
+            window.pawpal.catActionPlayback({ startedAt, phase, elapsedMs: 0 });
+        }
+    }, fed.runtime.catActionStartedAt);
+    await petPage.waitForFunction(() => {
+        const cat = document.querySelector('pet-avatar').avatar;
+        return cat.dataset.pose === 'loaf' && cat.dataset.animation === 'static';
+    });
+    assert.equal((await state()).runtime.catActionStartedAt, 0);
+    assert.equal((await state()).runtime.behavior, 'idle');
+
+    const toy = await startGame('teaser');
+    const playing = await state();
+    assert.equal((await toyWindow()).visible, true);
+    await confirmCatReset(dashboard, playing, sentinel);
+    assert.equal(toy.isClosed(), true, 'reset destroys the actual native toy window');
+    assert.ok(!(await nativeWindows()).some((window) => window.filename === 'toy.html'));
+    await petPage.waitForTimeout(700);
+    const settled = await state();
+    assert.equal(settled.game, null);
+    assert.equal(settled.runtime.behavior, 'idle');
+    assert.equal(settled.runtime.catActionStartedAt, 0);
+    assert.equal(settled.pet.interactions, 0, 'an ended game cannot grant a delayed reward');
+    assert.deepEqual(settled.pet.playStats, { pounce: 0, bubbles: 0, teaser: 0 });
+    assert.deepEqual(savedProfiles().pets.dog, sentinel);
+    await dashboard.screenshot({ path: path.join(artifacts, 'cat-reset-game-stopped.png') });
+    await petPage.screenshot({ path: path.join(artifacts, 'cat-reset-resting.png'), omitBackground: true });
+    console.log('✓ cat reset: UI cancel/confirm/repeat, wake and feed, cancelled animation, native toy cleanup, preserved settings and inactive profile, immediate JSON save');
+}
+
 (async () => {
     checkAssets();
     fs.mkdirSync(artifacts, { recursive: true });
     userData = fs.mkdtempSync(path.join(os.tmpdir(), 'pawpal-cat-only-'));
     const cat = createState(Date.now(), 'cat');
     assert.equal(cat.settings.size, 30, 'new cats default to 30%');
-    Object.assign(cat, { name: 'Cat QA', energy: 0, sleeping: true });
+    Object.assign(cat, { name: 'Cat QA', energy: 0, sleeping: true, fullness: 60 });
     Object.assign(cat.settings, { roaming: false, reducedMotion: false });
-    fs.writeFileSync(path.join(userData, 'companion.json'), JSON.stringify({ version: 3, activeSpecies: 'cat', pets: { cat } }));
+    const sentinel = createState(cat.adoptedAt - 86400000, 'dog');
+    Object.assign(sentinel, { name: 'Storage sentinel', fullness: 61, happiness: 44, energy: 39, affection: 313,
+        interactions: 29, position: { x: -420, y: 160 } });
+    Object.assign(sentinel.settings, { roaming: false, alwaysOnTop: false, size: 44 });
+    sentinel.playStats = Object.fromEntries(Object.keys(sentinel.playStats).map((mode, index) => [mode, index + 7]));
+    fs.writeFileSync(path.join(userData, 'companion.json'), JSON.stringify({ version: 3, activeSpecies: 'cat', pets: { cat, dog: sentinel } }));
     const environment = { ...process.env, PAWPAL_USER_DATA: userData };
     delete environment.ELECTRON_RUN_AS_NODE;
     try {
@@ -499,11 +786,15 @@ async function teaserInputCleanup() {
         await checkMenus();
         await noSurpriseSettings('settings remain hidden');
         await checkStanding();
+        await checkGrooming();
         assert.equal((await state()).pet.sleeping, true);
         await teaserRound();
         await teaserInputCleanup();
         await checkToyScales();
         for (const mode of ['pounce', 'bubbles']) await quickRound(mode);
+        assert.equal((await petPage.evaluate(() => window.pawpal.action('sleep'))).ok, true);
+        await checkEating();
+        await checkReset(sentinel);
         assert.deepEqual(pageErrors, []);
         assert.equal((await state()).pet.settings.species, 'cat');
         const missingClips = ['teaser-watch', 'teaser-ready', 'teaser-jump'].filter((name) => {

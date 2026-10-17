@@ -56,6 +56,17 @@ function createState(now = Date.now(), species = 'dog') {
     };
 }
 
+function resetPetData(current, now = Date.now()) {
+    return {
+        ...createState(now, current.settings.species),
+        name: current.name,
+        adoptedAt: current.adoptedAt,
+        settings: { ...current.settings },
+        position: current.position ? { ...current.position } : null,
+        activity: [],
+    };
+}
+
 function validSetting(key, value, species) {
     if (!Object.hasOwn(defaultSettings(species), key)) return false;
     if (key === 'species') return value === species;
@@ -224,5 +235,5 @@ function getFriendship(state) {
 module.exports = {
     HOUR, MAX_OFFLINE_TIME, DEFAULT_SETTINGS, createState, normalizeState,
     advanceState, performAction, updateSettings, renamePet, getMood, getFriendship,
-    ensureCanPlay, rewardPlay,
+    ensureCanPlay, rewardPlay, resetPetData,
 };

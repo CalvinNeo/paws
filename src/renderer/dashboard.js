@@ -84,18 +84,21 @@ function renderActivity(pet) {
 
 function updateCareButtons() {
     if (!currentState) return;
-    const { pet, companion, standingAvailable } = currentState;
+    const { pet, companion, standingAvailable, groomingAvailable } = currentState;
     for (const button of document.querySelectorAll('[data-action]')) {
         const action = button.dataset.action;
         button.disabled = pendingAction
             || (action === 'feed' && (pet.sleeping || pet.fullness >= 98))
             || (Object.hasOwn(companion.tricks || {}, action) && pet.sleeping)
-            || (action === 'stand' && !standingAvailable);
+            || (action === 'stand' && !standingAvailable)
+            || (action === 'groom' && !groomingAvailable);
         button.setAttribute('aria-busy', String(pendingAction));
     }
     document.querySelectorAll('[data-play-mode]').forEach((button) => {
         button.disabled = pendingAction;
     });
+    element('reset-pet').disabled = pendingAction;
+    element('confirm-reset').disabled = pendingAction;
 }
 
 function renderCompanion(companion) {
@@ -156,6 +159,7 @@ function renderState(snapshot) {
         element('play-dialog').close();
         element('explanation-dialog').close();
         element('rename-dialog').close();
+        element('reset-dialog').close();
         renderCompanion(companion);
     }
     const isCat = pet.settings.species === 'cat';
@@ -379,6 +383,21 @@ element('rename-form').addEventListener('submit', async (event) => {
     event.preventDefault();
     if (await request('rename', element('name-input').value)) element('rename-dialog').close();
 });
+element('reset-pet').addEventListener('click', () => {
+    if (!currentState || pendingAction) return;
+    element('reset-title').textContent = `Reset data for ${currentState.pet.name}?`;
+    element('reset-form').dataset.species = currentState.pet.settings.species;
+    element('reset-dialog').showModal();
+});
+element('reset-form').addEventListener('submit', async (event) => {
+    event.preventDefault();
+    if (pendingAction) return;
+    pendingAction = true;
+    updateCareButtons();
+    if (await request('reset', element('reset-form').dataset.species)) element('reset-dialog').close();
+    pendingAction = false;
+    updateCareButtons();
+});
 document.querySelectorAll('[data-close-dialog]').forEach((button) => {
     button.addEventListener('click', () => button.closest('dialog').close());
 });
@@ -406,7 +425,7 @@ if (bridge) {
 } else {
     element('warning-banner').hidden = false;
     element('warning-banner').textContent = 'This is a desktop application. Run npm start from the puppy folder to meet your companion.';
-    document.querySelectorAll('[data-action], [data-setting], [data-preference], [data-window], #rename-button, #pet-size-range').forEach((control) => { control.disabled = true; });
+    document.querySelectorAll('[data-action], [data-setting], [data-preference], [data-window], #rename-button, #pet-size-range, #reset-pet').forEach((control) => { control.disabled = true; });
 }
 
 window.addEventListener('focus', () => { if (bridge) request('getState'); });

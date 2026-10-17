@@ -3,6 +3,7 @@ const { contextBridge, ipcRenderer } = require('electron');
 contextBridge.exposeInMainWorld('pawpal', {
     getState: () => ipcRenderer.invoke('pawpal:get'),
     action: (action) => ipcRenderer.invoke('pawpal:action', action),
+    catActionPlayback: (payload) => ipcRenderer.send('pawpal:cat-action-playback', payload),
     play: (mode) => ipcRenderer.invoke('pawpal:play', mode),
     toyState: () => ipcRenderer.invoke('pawpal:toy-get'),
     toyPointer: (inside) => ipcRenderer.send('pawpal:toy-pointer', inside),
@@ -15,6 +16,7 @@ contextBridge.exposeInMainWorld('pawpal', {
         return () => ipcRenderer.removeListener('pawpal:toy-state', listener);
     },
     preferences: (patch) => ipcRenderer.invoke('pawpal:preferences', patch),
+    reset: (species) => ipcRenderer.invoke('pawpal:reset', species),
     rename: (name) => ipcRenderer.invoke('pawpal:rename', name),
     window: (command) => ipcRenderer.invoke('pawpal:window', command),
     pointer: (interactive) => ipcRenderer.send('pawpal:pointer', interactive),
